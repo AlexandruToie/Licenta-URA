@@ -3,6 +3,7 @@ using UnityEngine;
 
 public class WindingPathTerrainGenerator : MonoBehaviour
 {
+
     public int width = 256;
     public int height = 256;
     public int depth = 20;
@@ -30,7 +31,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
     
     public float centerBlendFactor = 1.5f; // Multiplier for how wide the blend zone is around the center. 1.0 = same as center size, 2.0 = double.
     
-    public float pathWidth = 0.025f; // percentage of total size
+    public float pathWidth = 0.015f; // percentage of total size
     
     public float pathBlendFactor = 4.5f; // Multiplier for how wide the blend zone is around the path. 1.0 = same as path width, 2.0 = double.
     
@@ -48,39 +49,45 @@ public class WindingPathTerrainGenerator : MonoBehaviour
     public float rockSlopeThreshold = 0.5f; // Normalized slope (0-1)
     [Tooltip("How much to blend the slope texture (rock).")]
     public float slopeBlendAmount = 0.1f;
-
-    // --- Parameters for tree placement ---
-    [Header("Tree Generation")]
     
+    [Header("Tree Generation")]
+  
+    // public int treePrototypeIndex = 0; // This is no longer used
     [Tooltip("Base chance (0-1) to plant a tree at any given spot. (Set higher for testing)")]
     [Range(0f, 1f)]
-    public float treeDensity = 0.4f; // Base chance to plant a tree at any given spot
+  
+    public float treeDensity = 0.4f; 
     [Tooltip("The minimum slope (0-1) trees can grow on.")]
     [Range(0f, 1f)]
-    public float minTreeSlope = 0f; // Minimum slope for tree growth
+    public float minTreeSlope = 0f;
     [Tooltip("The maximum slope (0-1) trees can grow on. (0.6 = ~54 degrees)")]
     [Range(0f, 1f)]
-    public float maxTreeSlope = 0.6f; // Maximum slope for tree growth
+    public float maxTreeSlope = 0.6f; 
     [Tooltip("The minimum (normalized 0-1) height trees can grow at.")]
     [Range(0f, 1f)]
-    public float minTreeHeight = 0.05f; // Minimum height for tree growth
+    public float minTreeHeight = 0.05f; 
     [Tooltip("The maximum (normalized 0-1) height trees can grow at.")]
     [Range(0f, 1f)]
     public float maxTreeHeight = 0.8f; // Maximum height for tree growth
 
 
-    private float[,] pathMask;
-    private List<Vector2[]> paths;
-    private float centerRadius;
+    [Header("City Generation")]
+    [Tooltip("Drag your CityGenerator GameObject here.")]
+    public CityGenerator cityGenerator; 
+
+    public float[,] pathMask;
+    public List<Vector2[]> paths;
+    public float centerRadius;
     private float outerCenterRadius;
-    private int centerX;
-    private int centerY;
+    public int centerX;
+    public int centerY;
     private float pathWidthPixels;
     private float maskOffsetX; 
     private float maskOffsetY;
 
     void Start() 
     {
+        // ... (no changes in Start function) ...
         offsetX = Random.Range(0f, 9999f); // Randomize offsets for terrain variation
         offsetY = Random.Range(0f, 9999f);
         numPaths = Random.Range(2, 7);  // Randomize number of paths between 2 and 6
@@ -100,11 +107,12 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
         // 2. Generate the terrain once, using the paths
         Terrain terrain = GetComponent<Terrain>();
-        terrain.terrainData = GenerateTerrain(terrain.terrainData);
+        terrain.terrainData = GenerateTerrain(terrain); // --- MODIFIED --- Pass the whole Terrain object
     }
 
-    TerrainData GenerateTerrain(TerrainData terrainData)
+    TerrainData GenerateTerrain(Terrain terrain) // --- MODIFIED --- Accept the Terrain object
     {
+        TerrainData terrainData = terrain.terrainData; // --- NEW --- Get the terrainData from the terrain
         terrainData.heightmapResolution = width + 1; // Heightmap resolution must be size + 1
         terrainData.size = new Vector3(width, depth, height); // Set the size of the terrain
         
@@ -135,20 +143,42 @@ public class WindingPathTerrainGenerator : MonoBehaviour
         GenerateSplatmaps(terrainData, finalHeights);
 
         // Call the tree generation function
-        GenerateTrees(terrainData, finalHeights);
+    GenerateTrees(terrainData, finalHeights);
 
-        return terrainData;
+    // --- NEW ---
+    // After ALL terrain work is done, initialize the City Generator
+    if (cityGenerator != null)
+    {
+        Debug.Log("Terrain generation complete. Initializing City Generator...");
+        cityGenerator.Initialize(terrain, this); // --- MODIFIED --- Pass the Terrain object, not terrainData
     }
+    else
+    {
+        Debug.LogWarning("No CityGenerator assigned to WindingPathTerrainGenerator. Skipping city generation.");
+    }
+
+    return terrainData;
+}
+
+// --- DELETED --- These lines were outside the function and caused an error
+//      return terrainData;
+//  }
 
     
     float[,] GenerateHeights(int resX, int resY, bool isPreliminaryPass, float flatAreaHeight, out float minHeight, out float totalHeight) // Generates the heights for the terrain
     {
+        // ... (This function is unchanged) ...
+        // --- CRITICAL FIX ---
+        // Unity's SetHeights function expects [y, x] (height, width), not [x, y].
+        // We create the array as [resY, resX] to match this.
         float[,] heights = new float[resY, resX]; 
         
         minHeight = 1f;
         totalHeight = 0f;
         float currentHeight = 0f;
 
+        // --- CRITICAL FIX ---
+        // Loop Y (rows) first, then X (columns) to match the [y, x] array structure.
         for (int y = 0; y < resY; y++)
         {
             for (int x = 0; x < resX; x++)
@@ -202,7 +232,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
                     }
                     else
                     {
-                        heights[y, x] = naturalTerrainHeight;
+                        heights[y, x] = naturalTerrainHeight; // Use [y, x]
                     }
                 }
             }
@@ -210,9 +240,23 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
         return heights;
     }
+
+    
     void GenerateSplatmaps(TerrainData terrainData, float[,] heights)
     {
-        if (terrainData.alphamapLayers < 3) // We need at least 3 layers: Road, Grass, Rock
+        // ... (This function is unchanged) ...
+        // --- IMPORTANT ---
+        // This function assumes you have set up 3 Terrain Layers on your Terrain object
+        // in the Unity Editor, in this *exact* order:
+        //
+        // Layer 0: Road / Dirt (for paths and center)
+        // Layer 1: Grass (for low-lying flat areas)
+        // Layer 2: Rock (for steep slopes)
+        //
+        // If you have a different number of layers, this will fail!
+        // -----------------
+
+        if (terrainData.alphamapLayers < 3)
         {
             Debug.LogError("Terrain needs at least 3 Terrain Layers (Road, Grass, Rock) to be painted.");
             return;
@@ -220,7 +264,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
         int alphaResX = terrainData.alphamapWidth;
         int alphaResY = terrainData.alphamapHeight;
-
+        
         int heightResX = terrainData.heightmapResolution;
         int heightResY = terrainData.heightmapResolution;
 
@@ -231,24 +275,26 @@ public class WindingPathTerrainGenerator : MonoBehaviour
         {
             for (int x = 0; x < alphaResX; x++)
             {
+                // --- Map alphamap (x,y) to heightmap (hx, hy) ---
                 // We find the normalized position (0-1) and scale it to the heightmap resolution
                 float normX = (float)x / (alphaResX - 1);
                 float normY = (float)y / (alphaResY - 1);
-
+                
                 int hx = (int)(normX * (heightResX - 1));
                 int hy = (int)(normY * (heightResY - 1));
 
+                // --- Get data for this point ---
                 // Get height (normalized 0-1)
                 float height = heights[hy, hx]; // We use [hy, hx] because heights is [y, x]
 
                 // Get slope (normalized 0-1)
                 // GetSteepness uses normalized (0-1) coordinates
-                float slope = terrainData.GetSteepness(normX, normY) / 90f;
+                float slope = terrainData.GetSteepness(normX, normY) / 90f; 
 
                 // --- Blending Logic ---
                 // These will be our 3 layer weights.
                 float[] weights = new float[terrainData.alphamapLayers];
-
+                
                 // 1. Is it a path or flat center?
                 float pathBlend = GetPathBlendFactor(hx, hy);
                 float centerBlend = 0f;
@@ -261,14 +307,14 @@ public class WindingPathTerrainGenerator : MonoBehaviour
                 {
                     centerBlend = 1f - Mathf.InverseLerp(centerRadius, outerCenterRadius, distanceFromCenter);
                 }
-
+                
                 // Get the strongest "flat" blend
                 float flatBlend = Mathf.Max(pathBlend, centerBlend);
                 flatBlend = Mathf.SmoothStep(0.0f, 1.0f, flatBlend);
 
                 // --- Layer Weight Calculation ---
                 // Layer 0: Road
-                weights[0] = flatBlend;
+                weights[0] = flatBlend; 
 
                 // Layer 1: Grass
                 weights[1] = 1f - flatBlend; // Start with grass where there is no road
@@ -298,7 +344,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
                 }
                 else
                 {
-                    alphamaps[y, x, 1] = 1f; // Default to grass if weights are zero
+                     alphamaps[y, x, 1] = 1f; // Default to grass if weights are zero
                 }
             }
         }
@@ -306,19 +352,23 @@ public class WindingPathTerrainGenerator : MonoBehaviour
         // Finally, apply the alphamaps to the terrain
         terrainData.SetAlphamaps(0, 0, alphamaps);
     }
+
     
-    void GenerateTrees(TerrainData terrainData, float[,] heights) // Generates and places trees on the terrain based on rules
+    void GenerateTrees(TerrainData terrainData, float[,] heights)
     {
+        // ... (This function is unchanged) ...
+        // --- MODIFIED --- Check if any tree prototypes exist
         if (terrainData.treePrototypes.Length == 0)
         {
             Debug.LogWarning("No Tree Prototypes found. Please add tree prefabs to the terrain in the editor to plant trees.");
             return;
         }
 
-        List<TreeInstance> treeList = new List<TreeInstance>(); // List to hold new trees
+        List<TreeInstance> treeList = new List<TreeInstance>();
         int resX = terrainData.heightmapResolution;
         int resY = terrainData.heightmapResolution;
         
+        // --- MODIFIED --- Get the number of available tree prototypes
         int numTreePrototypes = terrainData.treePrototypes.Length;
 
         // We loop over the heightmap coordinates
@@ -388,7 +438,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
         // SetTreeInstances is much faster than AddTreeInstance
         terrainData.SetTreeInstances(treeList.ToArray(), true);
 
-        // Refresh the terrain collider after placing trees
+        // Optional: Refresh the terrain collider after placing trees
         float[,,] emptyAlphamap = terrainData.GetAlphamaps(0, 0, 1, 1);
         terrainData.SetAlphamaps(0, 0, emptyAlphamap);
     }
@@ -396,6 +446,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     float GetPathBlendFactor(int x, int y)
     {
+        // ... (This function is unchanged) ...
         if (pathMask == null) return 0f;
         // Use correct bounds check
         if (x < 0 || x >= width || y < 0 || y >= height) return 0f; 
@@ -404,12 +455,14 @@ public class WindingPathTerrainGenerator : MonoBehaviour
     
     bool IsNearPath(int x, int y) // Helper to check if a point is near any path
     {
+        // ... (This function is unchanged) ...
         return GetPathBlendFactor(x,y) > 0f;
     }
 
 
     float CalculateHeight(int x, int y, int resX, int resY)
     {
+        // ... (This function is unchanged) ...
         float amplitude = 1f;
         float frequency = 1f;
         float noiseValue = 0f;
@@ -450,6 +503,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     void GeneratePaths()
     {
+        // ... (This function is unchanged) ...
         pathMask = new float[width, height]; // Initialize the path mask
         paths = new List<Vector2[]>(); // List to hold all generated paths
 
@@ -495,6 +549,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     Vector2 RandomPointOnBorder() // Helper to get a random point on the terrain border
     {
+        // ... (This function is unchanged) ...
         int side = Random.Range(0, 4);
         float rx = Random.Range(0f, width - 1);
         float ry = Random.Range(0f, height - 1);
@@ -514,6 +569,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     void RasterizePathToMask(Vector2[] pathPoints)
     {
+        // ... (This function is unchanged) ...
         float pathRadius = pathWidthPixels / 2f;
         int blendRadiusPixels = Mathf.Max(1, Mathf.RoundToInt(pathRadius * pathBlendFactor)); 
         
