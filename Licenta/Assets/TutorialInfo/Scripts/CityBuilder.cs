@@ -1,392 +1,466 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class CityGenerator : MonoBehaviour
+public class CityGenerator : MonoBehaviour 
 {
-    // This struct holds a potential connection point for a new road.
-    // It's a "to-do" item for the road builder.
-    private struct RoadConnectionPoint
-    {
-        public Vector3 position; // The *target center* of the next prefab
-        public Quaternion rotation; // The direction to build *from* the parent
+    [Header("Growth Parameters")]
+    public int minStepsToIntersection = 5;
+    public int maxStepsToIntersection = 10;
+    public int maxGrowthIterations = 5;
 
-        public RoadConnectionPoint(Vector3 pos, Quaternion rot)
-        {
-            this.position = pos;
-            this.rotation = rot;
-        }
-    }
+    [Header("Object Prefabs")]
+    public GameObject roadPrefab;
+    public GameObject intersectionPrefab;
+    public GameObject buildingPrefab;
 
-    [Header("Generation Controls")]
-    [Tooltip("The total number of road prefabs to place.")]
-    public int maxRoadPlacements = 200;
-    [Tooltip("How many main roads to connect to the winding paths.")]
-    public int numConnectingRoads = 3;
+    [Header("Road & Intersection Meshes")]
+    public float roadPrefabTileLength = 1.0f;
+    public float intersectionRadius = 2.5f; 
+    public float intersectionClearance = 10f;
 
-    [Header("Road Prefabs (MUST have PIVOT AT CENTER)")]
-    [Tooltip("Set this to the layer your terrain is on (e.g., 'Terrain' or 'Default').")]
-    public LayerMask terrainLayer;
-    [Tooltip("Set this to the layer ALL your road prefabs are on (e.g., 'Road').")]
-    public LayerMask roadLayer; // CRITICAL for overlap checks
-    [Tooltip("How close to a connection point we check for existing roads.")]
-    public float checkOverlapRadius = 1.0f;
-    
-    public GameObject roadStraight;
-    public GameObject roadTurn90;
-    public GameObject road3Way;
-    public GameObject roadCross;
-
-    [Header("Prefab Dimensions (Full Length/Width)")]
-    [Tooltip("The FULL Z-Length (forward) of your 'roadStraight' prefab.")]
-    public float straightLength = 10f;
-    [Tooltip("The FULL Z-Length (forward) of your 'roadTurn90' prefab.")]
-    public float turnLength = 10f; 
-    [Tooltip("The FULL X-Length (sideways) of your 'roadTurn90' prefab.")]
-    public float turnWidth = 10f;
-    [Tooltip("The FULL Z-Length (forward) of your 'road3Way' prefab.")]
-    public float tJunctionLength = 10f;
-    [Tooltip("The FULL X-Length (sideways) of your 'road3Way' prefab.")]
-    public float tJunctionWidth = 10f; 
-    [Tooltip("The FULL Z-Length (forward) of your 'roadCross' prefab.")]
-    public float crossLength = 10f; 
-    [Tooltip("The FULL X-Length (sideways) of your 'roadCross' prefab.")]
-    public float crossWidth = 10f; 
-
-    [Header("Randomness")]
-    [Tooltip("The chance (0-1) to place a straight road.")]
-    [Range(0f, 1f)]
-    public float chanceStraight = 0.7f;
-    [Tooltip("The chance (0-1) to place a 90-degree turn.")]
-    [Range(0f, 1f)]
-    public float chanceTurn = 0.15f;
-    [Tooltip("The chance (0-1) to place a 3-way intersection.")]
-    [Range(0f, 1f)]
-    public float chance3Way = 0.1f;
-    // Note: Chance for 4-way cross is (1.0 - straight - turn - 3way)
+    // --- DELETED: The "Road Physics" fields are gone ---
 
     [Header("Building Placement")]
-    [Tooltip("How far from the road to place houses.")]
-    public float houseOffset = 10f;
-    [Tooltip("A small vertical offset to prevent prefabs from z-fighting with the terrain.")]
-    public float prefabVerticalOffset = 0.05f;
-    public GameObject[] AChousePrefabs; 
+    public float buildingOffset = 2f;
+    public float buildingSpacing = 5f;
+    [Range(0, 90)]
+    public float maxBuildingSlope = 30f; 
+    [Tooltip("Layer mask for checking if a building spot is occupied.")]
+    public LayerMask buildingLayer; 
+    public float buildingCheckRadius = 3f;
+    
+    [Header("Terrain Constraints")]
+    public bool constrainToFlatZone = true; 
 
-    // --- Internal Generation Data ---
+    // --- Private ---
     private Terrain terrain;
-    private WindingPathTerrainGenerator terrainGen;
+    private WindingPathTerrainGenerator terrainGenerator;
     
-    private Queue<RoadConnectionPoint> connectionQueue = new Queue<RoadConnectionPoint>();
-    private List<KeyValuePair<Vector3, Quaternion>> straightRoads = new List<KeyValuePair<Vector3, Quaternion>>();
-    private List<Vector3> roadNodes = new List<Vector3>(); // For connector roads
-    
+    private Queue<RoadWalker> walkerQueue = new Queue<RoadWalker>();
+    private List<Vector3> placedIntersectionPoints = new List<Vector3>();
+    private List<RoadSegment> allRoadSegments = new List<RoadSegment>();
 
-    public void Initialize(Terrain terr, WindingPathTerrainGenerator gen)
+    #region Helper Classes
+    private class RoadWalker
     {
-        this.terrain = terr;
-        this.terrainGen = gen;
-        
-        connectionQueue.Clear();
-        straightRoads.Clear();
-        roadNodes.Clear();
+        public Vector3 startPosition; 
+        public Quaternion rotation;   
+        public int stepsToGrow;    
+        public int iterationsLeft; 
 
-        if (terrainLayer.value == 0 || roadLayer.value == 0)
+        public RoadWalker(Vector3 pos, Quaternion rot, int steps, int iter)
         {
-            Debug.LogError("CRITICAL ERROR: 'Terrain Layer' or 'Road Layer' is not set in the CityGenerator Inspector! Please assign them.");
+            this.startPosition = pos;
+            this.rotation = rot;
+            this.stepsToGrow = steps;
+            this.iterationsLeft = iter;
+        }
+    }
+    
+    private class RoadSegment
+    {
+        public Vector3 start;
+        public Vector3 end;
+        // We no longer store the "ideal" direction,
+        // we calculate the *real* one.
+        
+        public RoadSegment(Vector3 start, Vector3 end) 
+        { 
+            this.start = start; 
+            this.end = end;
+        }
+    }
+    #endregion
+
+
+    public void Initialize(Terrain terrain, WindingPathTerrainGenerator generator)
+    {
+        Debug.Log("CityGenerator received 'Initialize' call from TerrainGenerator.");
+
+        this.terrain = terrain;
+        this.terrainGenerator = generator;
+
+        if (this.terrain == null || this.terrainGenerator == null)
+        {
+            Debug.LogError("CityGenerator is missing Terrain or TerrainGenerator reference!");
             return;
         }
-
-        if (!ValidatePrefabs()) return;
-
-        GenerateRoadNetwork();
         
-        // --- FOCUS ON ROADS ---
-        // GenerateHouses();
-        // ConnectCityToPaths();
+        if (roadPrefabTileLength <= 0.01f)
+        {
+            Debug.LogError("'Road Prefab Tile Length' is 0. Please set it to the length of your road mesh in the Inspector.");
+            return;
+        }
+        
+        Vector3 terrainPos = terrain.transform.position;
+        float cityCenterX = terrainGenerator.centerX;
+        float cityCenterZ = terrainGenerator.centerY;
+        Vector3 worldSpaceCenter = terrainPos + new Vector3(cityCenterX, 0, cityCenterZ);
+        worldSpaceCenter.y = terrain.SampleHeight(worldSpaceCenter);
+        this.transform.position = worldSpaceCenter;
+        
+        Debug.Log($"CityGenerator starting at: {this.transform.position}");
+
+        GrowCity();
     }
 
-    bool ValidatePrefabs()
+
+    /// <summary>
+    /// This is the "walker" logic, now with math-based path-checking.
+    /// </summary>
+    private void GrowCity()
     {
-        if (roadStraight == null || roadTurn90 == null || road3Way == null || roadCross == null)
+        ClearCity();
+
+        Vector3 startPos = this.transform.position;
+        placedIntersectionPoints.Add(startPos);
+        
+        int startSteps;
+        int maxIter = maxGrowthIterations;
+
+        startSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
+        walkerQueue.Enqueue(new RoadWalker(startPos, Quaternion.Euler(0, 0, 0), startSteps, maxIter));
+        
+        startSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
+        walkerQueue.Enqueue(new RoadWalker(startPos, Quaternion.Euler(0, 90, 0), startSteps, maxIter));
+        
+        startSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
+        walkerQueue.Enqueue(new RoadWalker(startPos, Quaternion.Euler(0, 180, 0), startSteps, maxIter));
+        
+        startSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
+        walkerQueue.Enqueue(new RoadWalker(startPos, Quaternion.Euler(0, 270, 0), startSteps, maxIter));
+
+        // --- Main Growth Loop ---
+        while(walkerQueue.Count > 0)
         {
-            Debug.LogError("One or more road prefabs are not assigned!");
-            return false;
+            RoadWalker walker = walkerQueue.Dequeue();
+            
+            if (walker.iterationsLeft <= 0) continue;
+
+            // 1. Calculate New Position
+            float roadLength = walker.stepsToGrow * roadPrefabTileLength;
+            Vector3 roadDirection = walker.rotation * Vector3.forward;
+            Vector3 endPos = walker.startPosition + roadDirection * roadLength;
+
+            if (terrain != null) endPos.y = terrain.SampleHeight(endPos);
+
+            // 2. Check if New Position is Valid
+            if (constrainToFlatZone && !IsOnFlatZone(endPos))
+            {
+                continue; // Outside allowed area
+            }
+            
+            if (IsTooCloseToOtherIntersection(endPos, walker.startPosition))
+            {
+                continue; // Overlaps another intersection
+            }
+
+            // --- THIS IS THE FIX ---
+            // 3. Check if the PATH is valid (doesn't cross another road)
+            if (DoesPathMathematicallyCross(walker.startPosition, endPos))
+            {
+                continue; // Path is blocked! Kill this walker.
+            }
+            // -----------------------
+
+            // --- 4. If Valid: Place Intersection & Spawn New Walkers ---
+            placedIntersectionPoints.Add(endPos);
+            allRoadSegments.Add(new RoadSegment(walker.startPosition, endPos));
+
+            int newIterations = walker.iterationsLeft - 1;
+            int nextSteps;
+            
+            // Walker 1: North (Straight)
+            nextSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
+            Quaternion forwardRot = walker.rotation;
+            walkerQueue.Enqueue(new RoadWalker(endPos, forwardRot, nextSteps, newIterations));
+
+            // Walker 2: West (Left)
+            nextSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
+            Quaternion leftRot = walker.rotation * Quaternion.Euler(0, -90, 0);
+            walkerQueue.Enqueue(new RoadWalker(endPos, leftRot, nextSteps, newIterations));
+
+            // Walker 3: East (Right)
+            nextSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
+            Quaternion rightRot = walker.rotation * Quaternion.Euler(0, 90, 0);
+            walkerQueue.Enqueue(new RoadWalker(endPos, rightRot, nextSteps, newIterations));
         }
-        if (AChousePrefabs == null || AChousePrefabs.Length == 0)
+
+        InstantiateCity();
+    }
+    
+    
+    private bool IsTooCloseToOtherIntersection(Vector3 newPos, Vector3 startPos)
+    {
+        foreach(Vector3 existingPos in placedIntersectionPoints)
         {
-            Debug.LogWarning("No house prefabs assigned. City will not have houses.");
+            // Don't check against our *own* starting point
+            if (existingPos == startPos) continue;
+
+            if ((newPos - existingPos).sqrMagnitude < (intersectionClearance * intersectionClearance))
+            {
+                return true; 
+            }
         }
-        return true;
+        return false; 
     }
 
-    void GenerateRoadNetwork()
+
+    /// <summary>
+    /// This function takes the generated data and spawns the prefabs.
+    /// </summary>
+    private void InstantiateCity()
     {
-        // 1. Find the exact center
-        float worldCenterX = terrain.transform.position.x + terrainGen.centerX;
-        float worldCenterZ = terrain.transform.position.z + terrainGen.centerY;
+        GameObject roadParent = new GameObject("Roads");
+        GameObject buildingParent = new GameObject("Buildings");
+        GameObject intersectionParent = new GameObject("Intersections");
         
-        var (startPos, startRot, startSuccess) = AlignToTerrain(new Vector3(worldCenterX, 0, worldCenterZ));
-        if (!startSuccess) { Debug.LogError("Could not find center of terrain!"); return; }
+        roadParent.transform.SetParent(this.transform);
+        buildingParent.transform.SetParent(this.transform);
+        intersectionParent.transform.SetParent(this.transform);
 
-        // 2. Place the first "Roundabout" (a 4-way cross) and add its connections
-        PlaceRoadPrefab(roadCross, startPos, Quaternion.identity); 
-
-        // 3. Start the growth loop
-        int placements = 0;
-        while (placements < maxRoadPlacements && connectionQueue.Count > 0)
+        // --- 1. Instantiate Intersections ---
+        if (intersectionPrefab != null)
         {
-            RoadConnectionPoint currentPoint = connectionQueue.Dequeue();
-
-            // --- OVERLAP CHECK ---
-            // Check if a road is already at the target *center*
-            // We use the connection point's *position* as the target center
-            if (Physics.CheckSphere(currentPoint.position, checkOverlapRadius, roadLayer))
+            foreach (Vector3 pos in placedIntersectionPoints)
             {
-                continue; // This connection point is already filled, skip it
+                Instantiate(intersectionPrefab, pos, Quaternion.identity, intersectionParent.transform);
             }
-
-            // --- BOUNDS CHECK ---
-            if (!IsInFlatZone(currentPoint.position))
-            {
-                continue; // This point is outside the city, skip it
-            }
-
-            // --- PLACE A NEW ROAD PIECE ---
-            float choice = Random.value;
-            GameObject prefabToPlace;
-            
-            if (choice < chanceStraight)
-            {
-                prefabToPlace = roadStraight;
-            }
-            else if (choice < chanceStraight + chanceTurn)
-            {
-                prefabToPlace = roadTurn90;
-            }
-            else if (choice < chanceStraight + chanceTurn + chance3Way)
-            {
-                prefabToPlace = road3Way;
-            }
-            else
-            {
-                prefabToPlace = roadCross;
-            }
-            
-            // Place the new prefab, centered on the connectionPoint.position
-            PlaceRoadPrefab(prefabToPlace, currentPoint.position, currentPoint.rotation);
-            placements++;
         }
-        Debug.Log("Road generation complete. Placed " + placements + " segments.");
+
+        // --- 2. Instantiate Roads (Fixed) ---
+        if (roadPrefab != null)
+        {
+            foreach (RoadSegment segment in allRoadSegments)
+            {
+                Vector3 groundedDirection = (segment.end - segment.start).normalized;
+                Quaternion rotation = Quaternion.LookRotation(groundedDirection);
+
+                Vector3 roadStartPos = segment.start + (groundedDirection * intersectionRadius);
+                Vector3 roadEndPos = segment.end - (groundedDirection * intersectionRadius);
+                float segmentLength = Vector3.Distance(roadStartPos, roadEndPos);
+
+                if (segmentLength < roadPrefabTileLength) continue; 
+            
+                float distanceCovered = 0f;
+                while (distanceCovered < segmentLength)
+                {
+                    float tileCenter = distanceCovered + (roadPrefabTileLength / 2.0f);
+                    if (tileCenter > segmentLength) break;
+                    
+                    float t = tileCenter / segmentLength;
+                    Vector3 tilePos = Vector3.Lerp(roadStartPos, roadEndPos, t);
+                    
+                    Instantiate(roadPrefab, tilePos, rotation, roadParent.transform);
+                    
+                    distanceCovered += roadPrefabTileLength;
+                }
+            }
+        }
+        
+        // --- 3. Instantiate Buildings (FIXED ROTATION) ---
+        if (buildingPrefab != null)
+        {
+            foreach (RoadSegment segment in allRoadSegments)
+            {
+                float roadLength = Vector3.Distance(segment.start, segment.end);
+                
+                // --- THIS IS THE FIX ---
+                // Get the *actual* direction of the grounded road segment
+                Vector3 roadDirection = (segment.end - segment.start).normalized;
+                Vector3 rightDir = Vector3.Cross(roadDirection, Vector3.up).normalized;
+                // -----------------------
+
+                int buildingsPerSide = Mathf.FloorToInt(roadLength / buildingSpacing);
+                
+                for (int i = 0; i < buildingsPerSide; i++)
+                {
+                    float t = (i * buildingSpacing + (buildingSpacing / 2)) / roadLength;
+                    Vector3 positionOnRoad = Vector3.Lerp(segment.start, segment.end, t);
+
+                    // --- Right Side ---
+                    Vector3 buildingPosRight = positionOnRoad + (rightDir * (buildingOffset + buildingCheckRadius)); 
+                    if (terrain != null) buildingPosRight.y = terrain.SampleHeight(buildingPosRight);
+                    
+                    if (CheckSlope(buildingPosRight, maxBuildingSlope) && !IsSpotOccupied(buildingPosRight))
+                    {
+                        Quaternion buildingRotRight = Quaternion.LookRotation(-rightDir); // Face the road
+                        Instantiate(buildingPrefab, buildingPosRight, buildingRotRight, buildingParent.transform);
+                    }
+
+                    // --- Left Side ---
+                    Vector3 buildingPosLeft = positionOnRoad - (rightDir * (buildingOffset + buildingCheckRadius));
+                    if (terrain != null) buildingPosLeft.y = terrain.SampleHeight(buildingPosLeft);
+
+                    if (CheckSlope(buildingPosLeft, maxBuildingSlope) && !IsSpotOccupied(buildingPosLeft))
+                    {
+                        Quaternion buildingRotLeft = Quaternion.LookRotation(rightDir); // Face the road
+                        Instantiate(buildingPrefab, buildingPosLeft, buildingRotLeft, buildingParent.transform);
+                    }
+                }
+            }
+        }
+    }
+
+    
+    // ---
+    // --- HELPER METHODS ---
+    // ---
+
+    #region Road Intersection Math (The Fix)
+
+    /// <summary>
+    /// Checks our new proposed road against all roads we've already planned.
+    /// </summary>
+    private bool DoesPathMathematicallyCross(Vector3 newStart, Vector3 newEnd)
+    {
+        // We only care about 2D (X, Z) coordinates for crossing
+        Vector2 p1 = new Vector2(newStart.x, newStart.z);
+        Vector2 p2 = new Vector2(newEnd.x, newEnd.z);
+
+        foreach (RoadSegment segment in allRoadSegments)
+        {
+            Vector2 p3 = new Vector2(segment.start.x, segment.start.z);
+            Vector2 p4 = new Vector2(segment.end.x, segment.end.z);
+
+            if (LineSegmentsIntersect(p1, p2, p3, p4))
+            {
+                // Our new road crosses an existing one. This is invalid.
+                return true; 
+            }
+        }
+        
+        return false; // Path is clear
     }
 
     /// <summary>
-    /// The master function to place, align, and register any road prefab.
-    /// ASSUMES ALL PREFABS HAVE A CENTER PIVOT.
+    /// Standard 2D math to find orientation of ordered triplet (p, q, r).
     /// </summary>
-    void PlaceRoadPrefab(GameObject prefab, Vector3 centerPos, Quaternion incomingRot)
+    /// <returns>0 = Collinear, 1 = Clockwise, 2 = Counterclockwise</returns>
+    private int GetOrientation(Vector2 p, Vector2 q, Vector2 r)
     {
-        // 1. Align the *center* point to the terrain
-        var (finalPos, finalRot, success) = AlignToTerrain(centerPos);
-        if (!success) return; // Fail, raycast missed
+        float val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+        if (Mathf.Abs(val) < 0.0001f) return 0; // Collinear
+        return (val > 0) ? 1 : 2; // Clockwise or Counterclockwise
+    }
 
-        // 2. Place the prefab
-        // We combine the terrain's normal (finalRot) with the road's desired direction (incomingRot)
-        Quaternion finalPrefabRot = finalRot * incomingRot;
-        GameObject newRoad = Instantiate(prefab, finalPos + (finalRot * Vector3.up * prefabVerticalOffset), finalPrefabRot);
-        
-        // --- FIX --- The problematic line is GONE.
-        // The prefab's layer is set in the Inspector, not here.
-        
-        // 3. Add new connection points to the queue based on prefab type
-        
-        if (prefab == roadStraight)
+    /// <summary>
+    /// Given that p, q, and r are collinear, check if point q lies on segment 'pr'
+    /// </summary>
+    private bool OnSegment(Vector2 p, Vector2 q, Vector2 r)
+    {
+        if (q.x <= Mathf.Max(p.x, r.x) && q.x >= Mathf.Min(p.x, r.x) &&
+            q.y <= Mathf.Max(p.y, r.y) && q.y >= Mathf.Min(p.y, r.y))
         {
-            // Add one connection point at the *exit*
-            // finalPos = center. finalPrefabRot = direction.
-            // The exit is at center + (direction * half_length)
-            Vector3 exitPoint = finalPos + (finalPrefabRot * Vector3.forward * (straightLength / 2f));
-            connectionQueue.Enqueue(new RoadConnectionPoint(exitPoint, incomingRot));
-            
-            straightRoads.Add(new KeyValuePair<Vector3, Quaternion>(finalPos, finalPrefabRot));
+            return true;
         }
-        else if (prefab == roadTurn90)
+        return false;
+    }
+
+    /// <summary>
+    /// The main function that returns true if line segment 'p1q1' and 'p2q2' intersect.
+    /// </summary>
+    private bool LineSegmentsIntersect(Vector2 p1, Vector2 q1, Vector2 p2, Vector2 q2)
+    {
+        // Find the four orientations needed
+        int o1 = GetOrientation(p1, q1, p2);
+        int o2 = GetOrientation(p1, q1, q2);
+        int o3 = GetOrientation(p2, q2, p1);
+        int o4 = GetOrientation(p2, q2, q1);
+
+        // --- General Case ---
+        // If (p1, q1, p2) and (p1, q1, q2) have different orientations,
+        // and (p2, q2, p1) and (p2, q2, q1) have different orientations.
+        if (o1 != o2 && o3 != o4)
         {
-            // Randomly turn left or right
-            bool turnLeft = (Random.value < 0.5f);
-            float angle = turnLeft ? -90f : 90f;
-            Quaternion newRotation = incomingRot * Quaternion.Euler(0, angle, 0);
-
-            // Calculate the exit point (assumes center pivot)
-            // The exit is at center + (new_direction * half_width)
-            Vector3 exitDir = (turnLeft ? Vector3.left : Vector3.right);
-            Vector3 exitPoint = finalPos + (finalPrefabRot * exitDir * (turnWidth / 2f));
-            
-            connectionQueue.Enqueue(new RoadConnectionPoint(exitPoint, newRotation));
+            // We need to exclude the case where they just "touch" at an endpoint,
+            // as this is a valid intersection, not a crossing.
+            if (o1 == 0 || o2 == 0 || o3 == 0 || o4 == 0)
+            {
+                return false; // They are "touching" at an endpoint
+            }
+            return true; // They are definitely crossing in the middle
         }
-        else if (prefab == road3Way)
+
+        // --- Special Cases ---
+        // These are for when the lines are collinear
+        if (o1 == 0 && OnSegment(p1, p2, q1)) return true;
+        if (o2 == 0 && OnSegment(p1, q2, q1)) return true;
+        if (o3 == 0 && OnSegment(p2, p1, q2)) return true;
+        if (o4 == 0 && OnSegment(p2, q1, q2)) return true;
+
+        return false; // Doesn't fall in any of the above cases
+    }
+
+
+    #endregion
+
+    #region Other Helper Methods
+    private bool IsSpotOccupied(Vector3 pos)
+    {
+        if (Physics.CheckSphere(pos, buildingCheckRadius, buildingLayer))
         {
-            // Assumes pivot is center, and "incoming" is the bottom of the T
-            
-            // Left Branch
-            Quaternion rotL = incomingRot * Quaternion.Euler(0, -90, 0);
-            Vector3 posL = finalPos + (finalPrefabRot * (Vector3.left * (tJunctionWidth / 2f))); 
-            connectionQueue.Enqueue(new RoadConnectionPoint(posL, rotL));
-            
-            // Right Branch
-            Quaternion rotR = incomingRot * Quaternion.Euler(0, 90, 0);
-            Vector3 posR = finalPos + (finalPrefabRot * (Vector3.right * (tJunctionWidth / 2f))); 
-            connectionQueue.Enqueue(new RoadConnectionPoint(posR, rotR));
-
-            roadNodes.Add(finalPos); 
+            return true; 
         }
-        else if (prefab == roadCross)
-        {
-            // Assumes pivot is center. Adds 3 new exits (forward, left, right)
-            
-            // Forward (the one we didn't come from)
-            Vector3 posF = finalPos + (finalPrefabRot * Vector3.forward * (crossLength / 2f));
-            connectionQueue.Enqueue(new RoadConnectionPoint(posF, incomingRot));
-
-            // Left
-            Quaternion rotL = incomingRot * Quaternion.Euler(0, -90, 0);
-            Vector3 posL = finalPos + (finalPrefabRot * (Vector3.left * (crossWidth / 2f))); 
-            connectionQueue.Enqueue(new RoadConnectionPoint(posL, rotL));
-            
-            // Right
-            Quaternion rotR = incomingRot * Quaternion.Euler(0, 90, 0);
-            Vector3 posR = finalPos + (finalPrefabRot * (Vector3.right * (crossWidth / 2f))); 
-            connectionQueue.Enqueue(new RoadConnectionPoint(posR, rotR));
-
-            roadNodes.Add(finalPos);
-        }
+        return false; 
     }
     
-    // Helper to get the primary length (Z-axis) of a prefab
-    float GetPrefabLength(GameObject prefab)
+    private bool IsOnFlatZone(Vector3 worldPos)
     {
-        if (prefab == roadStraight) return straightLength;
-        if (prefab == roadTurn90) return turnLength;
-        if (prefab == road3Way) return tJunctionLength;
-        if (prefab == roadCross) return crossLength;
-        return 0f;
-    }
+        if (terrainGenerator == null || terrain == null) return true; 
 
-    void GenerateHouses()
-    {
-        if (AChousePrefabs == null || AChousePrefabs.Length == 0) return;
+        Vector3 terrainLocalPos = worldPos - terrain.transform.position;
+        int terrainX = (int)terrainLocalPos.x;
+        int terrainY = (int)terrainLocalPos.z;
 
-        foreach (var roadSegment in straightRoads)
-        {
-            Vector3 roadPos = roadSegment.Key;
-            Quaternion roadRot = roadSegment.Value;
+        float pathBlend = terrainGenerator.GetPublicPathBlend(terrainX, terrainY);
+        if (pathBlend > 0.1f) return true;
 
-            Vector3 rightDir = roadRot * Vector3.right; 
-            
-            Vector3 spot1 = roadPos + rightDir * houseOffset;
-            Vector3 spot2 = roadPos - rightDir * houseOffset;
-
-            if (IsInFlatZone(spot1))
-            {
-                var (pos1, rot1, success1) = AlignToTerrain(spot1);
-                if (success1)
-                {
-                    GameObject housePrefab = AChousePrefabs[Random.Range(0, AChousePrefabs.Length)];
-                    Instantiate(housePrefab, pos1 + (rot1 * Vector3.up * prefabVerticalOffset), rot1 * Quaternion.LookRotation(-rightDir));
-                }
-            }
-
-            if (IsInFlatZone(spot2))
-            {
-                var (pos2, rot2, success2) = AlignToTerrain(spot2);
-                if (success2)
-                {
-                    GameObject housePrefab = AChousePrefabs[Random.Range(0, AChousePrefabs.Length)];
-                    Instantiate(housePrefab, pos2 + (rot2 * Vector3.up * prefabVerticalOffset), rot2 * Quaternion.LookRotation(rightDir));
-                }
-            }
-        }
-    }
-
-    void ConnectCityToPaths()
-    {
-        if (terrainGen.paths == null || terrainGen.paths.Count == 0 || roadNodes.Count == 0) return;
-
-        for (int i = 0; i < numConnectingRoads; i++)
-        {
-            Vector3 startPos = roadNodes[Random.Range(0, roadNodes.Count)];
-            
-            Vector2[] randomPath = terrainGen.paths[Random.Range(0, terrainGen.paths.Count)];
-            Vector2 targetPoint2D = randomPath[Random.Range(0, randomPath.Length)];
-            
-            Vector3 endPos = new Vector3(
-                targetPoint2D.x + terrain.transform.position.x, 
-                0, 
-                targetPoint2D.y + terrain.transform.position.z); 
-
-            StartCoroutine(BuildConnectorRoad(startPos, endPos));
-        }
-    }
-
-    IEnumerator BuildConnectorRoad(Vector3 startPos, Vector3 endPos)
-    {
-        Vector3 currentPos = startPos;
-        int maxSteps = 200; 
-
-        for (int i = 0; i < maxSteps; i++)
-        {
-            float distToTarget = Vector3.Distance(new Vector2(currentPos.x, currentPos.z), new Vector2(endPos.x, endPos.z));
-
-            if (distToTarget < straightLength * 1.5f) // Stop if we're close
-            {
-                yield break; 
-            }
-
-            Vector3 targetDir = (endPos - currentPos).normalized;
-            targetDir.y = 0;
-            
-            // Calculate the center of the segment we're about to place
-            Vector3 segmentCenter = currentPos + targetDir * (straightLength / 2f);
-            
-            // Place the prefab and get its *new* exit point
-            Vector3 nextPos = segmentCenter + targetDir * (straightLength / 2f);
-            
-            // Check for overlap at the *new* position
-            if (Physics.CheckSphere(nextPos, checkOverlapRadius, roadLayer))
-            {
-                yield break; // We ran into another road
-            }
-
-            PlaceRoadPrefab(roadStraight, segmentCenter, Quaternion.LookRotation(targetDir));
-
-            // Move to the next connection point
-            currentPos = nextPos;
-            
-            yield return null; 
-        }
-    }
-
-    (Vector3, Quaternion, bool) AlignToTerrain(Vector3 originalPos, float raycastHeight = 50f)
-    {
-        Vector3 rayStart = new Vector3(originalPos.x, 1000f, originalPos.z);
+        float dist = Vector2.Distance(
+            new Vector2(terrainX, terrainY),
+            new Vector2(terrainGenerator.centerX, terrainGenerator.centerY)
+        );
         
-        if (Physics.Raycast(rayStart, Vector3.down, out RaycastHit hit, 2000f, terrainLayer)) 
-        {
-            Vector3 finalPos = hit.point;
-            Quaternion rotation = Quaternion.FromToRotation(Vector3.up, hit.normal);
-            return (finalPos, rotation, true);
-        }
-        return (Vector3.zero, Quaternion.identity, false); 
+        if (dist <= terrainGenerator.centerRadius * terrainGenerator.centerBlendFactor) return true; 
+
+        return false;
     }
 
-    bool IsInFlatZone(Vector3 worldPos)
+    private bool CheckSlope(Vector3 worldPos, float maxSlope)
     {
-        if (terrainGen == null) return false;
+        if (terrain == null) return true; 
 
-        float localX = worldPos.x - terrain.transform.position.x;
-        float localZ = worldPos.z - terrain.transform.position.z;
+        TerrainData td = terrain.terrainData;
+        Vector3 terrainLocalPos = worldPos - terrain.transform.position;
 
-        float dist = Vector2.Distance(new Vector2(localX, localZ), new Vector2(terrainGen.centerX, terrainGen.centerY));
-        
-        return dist <= terrainGen.centerRadius;
+        float normX = terrainLocalPos.x / td.size.x;
+        float normZ = terrainLocalPos.z / td.size.z;
+
+        if (normX < 0 || normX > 1 || normZ < 0 || normZ > 1) return false;
+
+        float slope = td.GetSteepness(normX, normZ); 
+        return slope <= maxSlope;
     }
+
+    [ContextMenu("Clear City")]
+    private void ClearCity()
+    {
+        walkerQueue.Clear();
+        placedIntersectionPoints.Clear();
+        allRoadSegments.Clear();
+        
+        int childCount = transform.childCount;
+        for (int i = childCount - 1; i >= 0; i--)
+        {
+            if (Application.isEditor && !Application.isPlaying)
+            {
+                DestroyImmediate(transform.GetChild(i).gameObject);
+            }
+            else
+            {
+                Destroy(transform.GetChild(i).gameObject);
+            }
+        }
+    }
+    #endregion
 }

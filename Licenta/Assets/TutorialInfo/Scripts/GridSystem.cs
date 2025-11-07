@@ -145,12 +145,10 @@ public class WindingPathTerrainGenerator : MonoBehaviour
         // Call the tree generation function
     GenerateTrees(terrainData, finalHeights);
 
-    // --- NEW ---
-    // After ALL terrain work is done, initialize the City Generator
     if (cityGenerator != null)
     {
         Debug.Log("Terrain generation complete. Initializing City Generator...");
-        cityGenerator.Initialize(terrain, this); // --- MODIFIED --- Pass the Terrain object, not terrainData
+        cityGenerator.Initialize(terrain, this);
     }
     else
     {
@@ -160,25 +158,16 @@ public class WindingPathTerrainGenerator : MonoBehaviour
     return terrainData;
 }
 
-// --- DELETED --- These lines were outside the function and caused an error
-//      return terrainData;
-//  }
 
     
     float[,] GenerateHeights(int resX, int resY, bool isPreliminaryPass, float flatAreaHeight, out float minHeight, out float totalHeight) // Generates the heights for the terrain
     {
-        // ... (This function is unchanged) ...
-        // --- CRITICAL FIX ---
-        // Unity's SetHeights function expects [y, x] (height, width), not [x, y].
-        // We create the array as [resY, resX] to match this.
         float[,] heights = new float[resY, resX]; 
         
         minHeight = 1f;
         totalHeight = 0f;
         float currentHeight = 0f;
 
-        // --- CRITICAL FIX ---
-        // Loop Y (rows) first, then X (columns) to match the [y, x] array structure.
         for (int y = 0; y < resY; y++)
         {
             for (int x = 0; x < resX; x++)
@@ -449,8 +438,12 @@ public class WindingPathTerrainGenerator : MonoBehaviour
         // ... (This function is unchanged) ...
         if (pathMask == null) return 0f;
         // Use correct bounds check
-        if (x < 0 || x >= width || y < 0 || y >= height) return 0f; 
+        if (x < 0 || x >= width || y < 0 || y >= height) return 0f;
         return pathMask[x, y];
+    }
+    public float GetPublicPathBlend(int x, int y)
+    {
+        return GetPathBlendFactor(x, y);
     }
     
     bool IsNearPath(int x, int y) // Helper to check if a point is near any path
