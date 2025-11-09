@@ -87,7 +87,6 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     void Start() 
     {
-        // ... (no changes in Start function) ...
         offsetX = Random.Range(0f, 9999f); // Randomize offsets for terrain variation
         offsetY = Random.Range(0f, 9999f);
         numPaths = Random.Range(2, 7);  // Randomize number of paths between 2 and 6
@@ -107,12 +106,12 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
         // 2. Generate the terrain once, using the paths
         Terrain terrain = GetComponent<Terrain>();
-        terrain.terrainData = GenerateTerrain(terrain); // --- MODIFIED --- Pass the whole Terrain object
+        terrain.terrainData = GenerateTerrain(terrain);
     }
 
-    TerrainData GenerateTerrain(Terrain terrain) // --- MODIFIED --- Accept the Terrain object
+    TerrainData GenerateTerrain(Terrain terrain)
     {
-        TerrainData terrainData = terrain.terrainData; // --- NEW --- Get the terrainData from the terrain
+        TerrainData terrainData = terrain.terrainData; // Get existing terrain data
         terrainData.heightmapResolution = width + 1; // Heightmap resolution must be size + 1
         terrainData.size = new Vector3(width, depth, height); // Set the size of the terrain
         
@@ -157,9 +156,6 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     return terrainData;
 }
-
-
-    
     float[,] GenerateHeights(int resX, int resY, bool isPreliminaryPass, float flatAreaHeight, out float minHeight, out float totalHeight) // Generates the heights for the terrain
     {
         float[,] heights = new float[resY, resX]; 
@@ -233,19 +229,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
     
     void GenerateSplatmaps(TerrainData terrainData, float[,] heights)
     {
-        // ... (This function is unchanged) ...
-        // --- IMPORTANT ---
-        // This function assumes you have set up 3 Terrain Layers on your Terrain object
-        // in the Unity Editor, in this *exact* order:
-        //
-        // Layer 0: Road / Dirt (for paths and center)
-        // Layer 1: Grass (for low-lying flat areas)
-        // Layer 2: Rock (for steep slopes)
-        //
-        // If you have a different number of layers, this will fail!
-        // -----------------
-
-        if (terrainData.alphamapLayers < 3)
+        if (terrainData.alphamapLayers < 3) // We need at least 3 layers: Road, Grass, Rock
         {
             Debug.LogError("Terrain needs at least 3 Terrain Layers (Road, Grass, Rock) to be painted.");
             return;
@@ -345,19 +329,16 @@ public class WindingPathTerrainGenerator : MonoBehaviour
     
     void GenerateTrees(TerrainData terrainData, float[,] heights)
     {
-        // ... (This function is unchanged) ...
-        // --- MODIFIED --- Check if any tree prototypes exist
-        if (terrainData.treePrototypes.Length == 0)
+        if (terrainData.treePrototypes.Length == 0) // Check if there are any tree prototypes
         {
             Debug.LogWarning("No Tree Prototypes found. Please add tree prefabs to the terrain in the editor to plant trees.");
             return;
         }
 
-        List<TreeInstance> treeList = new List<TreeInstance>();
+        List<TreeInstance> treeList = new List<TreeInstance>(); // Temporary list to hold trees
         int resX = terrainData.heightmapResolution;
         int resY = terrainData.heightmapResolution;
         
-        // --- MODIFIED --- Get the number of available tree prototypes
         int numTreePrototypes = terrainData.treePrototypes.Length;
 
         // We loop over the heightmap coordinates
@@ -408,8 +389,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
                 // Position is (normalized X, heightmap Y, normalized Z)
                 tree.position = new Vector3(normX, height, normY);
                 
-                // --- MODIFIED --- Pick a random tree prototype index
-                tree.prototypeIndex = Random.Range(0, numTreePrototypes);
+                tree.prototypeIndex = Random.Range(0, numTreePrototypes); // Randomly select a tree prototype
                 
                 // Add some random variation to size
                 tree.widthScale = Random.Range(0.7f, 1.3f);
@@ -435,10 +415,8 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     float GetPathBlendFactor(int x, int y)
     {
-        // ... (This function is unchanged) ...
-        if (pathMask == null) return 0f;
-        // Use correct bounds check
-        if (x < 0 || x >= width || y < 0 || y >= height) return 0f;
+        if (pathMask == null) return 0f; // No paths generated
+        if (x < 0 || x >= width || y < 0 || y >= height) return 0f; // Out of bounds check
         return pathMask[x, y];
     }
     public float GetPublicPathBlend(int x, int y)
@@ -448,14 +426,12 @@ public class WindingPathTerrainGenerator : MonoBehaviour
     
     bool IsNearPath(int x, int y) // Helper to check if a point is near any path
     {
-        // ... (This function is unchanged) ...
         return GetPathBlendFactor(x,y) > 0f;
     }
 
 
     float CalculateHeight(int x, int y, int resX, int resY)
     {
-        // ... (This function is unchanged) ...
         float amplitude = 1f;
         float frequency = 1f;
         float noiseValue = 0f;
@@ -496,7 +472,6 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     void GeneratePaths()
     {
-        // ... (This function is unchanged) ...
         pathMask = new float[width, height]; // Initialize the path mask
         paths = new List<Vector2[]>(); // List to hold all generated paths
 
@@ -515,7 +490,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
             Vector2[] pathPoints = new Vector2[pathResolution];
             float seed = Random.Range(0f, 1000f);
 
-            for (int p = 0; p < pathResolution; p++)
+            for (int p = 0; p < pathResolution; p++) // Generate each point along the path
             {
                 float t = (float)p / (pathResolution - 1);
                 Vector2 basePos = Vector2.Lerp(start, target, t);
@@ -523,14 +498,14 @@ public class WindingPathTerrainGenerator : MonoBehaviour
                 float noise = Mathf.PerlinNoise(seed + t * wobbleFrequency, seed + t * 0.37f);
                 float wobble = (noise - 0.5f) * 2f * wobbleAmplitude;
 
-                float longitudinal = (Mathf.PerlinNoise(seed + 10f + t * 1.3f, 0.0f) - 0.5f) * (wobbleAmplitude * 0.2f);
+                float longitudinal = (Mathf.PerlinNoise(seed + 10f + t * 1.3f, 0.0f) - 0.5f) * (wobbleAmplitude * 0.2f); // slight forward/backward variation
 
-                Vector2 pos = basePos + perp * wobble + dirNorm * longitudinal;
+                Vector2 pos = basePos + perp * wobble + dirNorm * longitudinal; // Apply wobble and longitudinal variation
 
                 pos.x = Mathf.Clamp(pos.x, 0f, width - 1);
                 pos.y = Mathf.Clamp(pos.y, 0f, height - 1);
 
-                pathPoints[p] = pos;
+                pathPoints[p] = pos; // Store the generated point
             }
 
             paths.Add(pathPoints);
@@ -542,7 +517,6 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     Vector2 RandomPointOnBorder() // Helper to get a random point on the terrain border
     {
-        // ... (This function is unchanged) ...
         int side = Random.Range(0, 4);
         float rx = Random.Range(0f, width - 1);
         float ry = Random.Range(0f, height - 1);
@@ -560,9 +534,8 @@ public class WindingPathTerrainGenerator : MonoBehaviour
         }
     }
 
-    void RasterizePathToMask(Vector2[] pathPoints)
+    void RasterizePathToMask(Vector2[] pathPoints) // Rasterizes a path into the pathMask
     {
-        // ... (This function is unchanged) ...
         float pathRadius = pathWidthPixels / 2f;
         int blendRadiusPixels = Mathf.Max(1, Mathf.RoundToInt(pathRadius * pathBlendFactor)); 
         

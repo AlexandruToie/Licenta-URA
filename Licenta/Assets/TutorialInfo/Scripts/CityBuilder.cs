@@ -1,352 +1,389 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class CityGenerator : MonoBehaviour 
+public class CityGenerator : MonoBehaviour
 {
-    [Header("Growth Parameters")]
-    public int minStepsToIntersection = 5;
-    public int maxStepsToIntersection = 10;
-    public int maxGrowthIterations = 5;
+    [Header("Prefab Categories")]
+    [Tooltip("The first piece to place. A crossroad is a good start.")]
+    public GameObject startPrefab;
+    [Tooltip("e.g., Strait-Road (This is the 'default' straight piece)")]
+    public GameObject defaultStraightPrefab;
+    [Tooltip("e.g., Strait-Road-Pedestrian (The 'special' piece to mix in)")]
+    public GameObject specialStraightPrefab;
+    
+    [Tooltip("e.g., 90-Road, 90-Long-Road")]
+    public List<GameObject> cornerPrefabs;
+    [Tooltip("e.g., 3Way-..., 5Way-...")]
+    public List<GameObject> threeWayPrefabs;
+    [Tooltip("e.g., Cross-Road, 4Way-...")]
+    public List<GameObject> crossroadPrefabs;
+    [Tooltip("e.g., Roundabout")]
+    public List<GameObject> roundaboutPrefabs;
 
-    [Header("Object Prefabs")]
-    public GameObject roadPrefab;
-    public GameObject intersectionPrefab;
-    public GameObject buildingPrefab;
+    [Header("Growth Logic")]
+    [Tooltip("The MIN number of straight roads to place before an intersection.")]
+    public int minStraightSteps = 3;
+    [Tooltip("The MAX number of straight roads to place before an intersection.")]
+    public int maxStraightSteps = 10;
+    
+    // --- NEW: Subprogram Logic ---
+    [Header("Straight Road 'Subprogram'")]
+    [Tooltip("The minimum number of roads between 'special' pieces.")]
+    public int minSpacingForSpecial = 5;
+    [Tooltip("The chance (0-1) to place a 'special' piece when spacing is met.")]
+    [Range(0f, 1f)]
+    public float chanceForSpecial = 0.5f;
 
-    [Header("Road & Intersection Meshes")]
-    public float roadPrefabTileLength = 1.0f;
-    public float intersectionRadius = 2.5f; 
-    public float intersectionClearance = 10f;
-
-    // --- DELETED: The "Road Physics" fields are gone ---
-
-    [Header("Building Placement")]
-    public float buildingOffset = 2f;
-    public float buildingSpacing = 5f;
-    [Range(0, 90)]
-    public float maxBuildingSlope = 30f; 
-    [Tooltip("Layer mask for checking if a building spot is occupied.")]
-    public LayerMask buildingLayer; 
-    public float buildingCheckRadius = 3f;
     
     [Header("Terrain Constraints")]
+    [Tooltip("Drag your Terrain Generator script here to get the flat zone info.")]
+    public WindingPathTerrainGenerator terrainGenerator;
+    [Tooltip("If true, roads will ONLY be built on the flat path/center areas defined in the terrain generator.")]
     public bool constrainToFlatZone = true; 
+    
+    private Terrain terrain;
 
     // --- Private ---
-    private Terrain terrain;
-    private WindingPathTerrainGenerator terrainGenerator;
-    
-    private Queue<RoadWalker> walkerQueue = new Queue<RoadWalker>();
-    private List<Vector3> placedIntersectionPoints = new List<Vector3>();
-    private List<RoadSegment> allRoadSegments = new List<RoadSegment>();
+    private Stack<SocketAgent> checkpointStack = new Stack<SocketAgent>();
+    private HashSet<Vector3> occupiedSocketPositions = new HashSet<Vector3>();
+    private List<RoadSegment> placedRoadSegments = new List<RoadSegment>();
+    private List<GameObject> spawnedRoads = new List<GameObject>();
 
-    #region Helper Classes
-    private class RoadWalker
+    // This is our "Checkpoint" / "Walker"
+    private class SocketAgent
     {
-        public Vector3 startPosition; 
-        public Quaternion rotation;   
-        public int stepsToGrow;    
-        public int iterationsLeft; 
-
-        public RoadWalker(Vector3 pos, Quaternion rot, int steps, int iter)
+        public Vector3 worldPosition;
+        public Quaternion worldRotation; // The direction the socket "faces"
+        
+        // --- NEW: We track spacing in the agent ---
+        public int currentStraightSpacing; 
+        
+        public SocketAgent(Vector3 pos, Quaternion rot, int spacing)
         {
-            this.startPosition = pos;
-            this.rotation = rot;
-            this.stepsToGrow = steps;
-            this.iterationsLeft = iter;
+            worldPosition = pos;
+            worldRotation = rot;
+            currentStraightSpacing = spacing;
         }
     }
     
+    // Stores the start/end of a road for math checks
     private class RoadSegment
     {
-        public Vector3 start;
-        public Vector3 end;
-        // We no longer store the "ideal" direction,
-        // we calculate the *real* one.
-        
-        public RoadSegment(Vector3 start, Vector3 end) 
-        { 
-            this.start = start; 
-            this.end = end;
-        }
+        public Vector2 p1; // 2D Start
+        public Vector2 p2; // 2D End
+        public RoadSegment(Vector2 p1, Vector2 p2) { this.p1 = p1; this.p2 = p2; }
     }
-    #endregion
 
 
     public void Initialize(Terrain terrain, WindingPathTerrainGenerator generator)
     {
-        Debug.Log("CityGenerator received 'Initialize' call from TerrainGenerator.");
-
+        Debug.Log("CityGenerator received 'Initialize' call.");
+        
         this.terrain = terrain;
         this.terrainGenerator = generator;
 
-        if (this.terrain == null || this.terrainGenerator == null)
+        if (terrain == null || terrainGenerator == null)
         {
-            Debug.LogError("CityGenerator is missing Terrain or TerrainGenerator reference!");
+            Debug.LogError("CityGenerator was not given a valid Terrain or TerrainGenerator!");
             return;
         }
-        
-        if (roadPrefabTileLength <= 0.01f)
-        {
-            Debug.LogError("'Road Prefab Tile Length' is 0. Please set it to the length of your road mesh in the Inspector.");
-            return;
-        }
-        
-        Vector3 terrainPos = terrain.transform.position;
-        float cityCenterX = terrainGenerator.centerX;
-        float cityCenterZ = terrainGenerator.centerY;
-        Vector3 worldSpaceCenter = terrainPos + new Vector3(cityCenterX, 0, cityCenterZ);
-        worldSpaceCenter.y = terrain.SampleHeight(worldSpaceCenter);
-        this.transform.position = worldSpaceCenter;
-        
-        Debug.Log($"CityGenerator starting at: {this.transform.position}");
 
-        GrowCity();
+        if (!ValidatePrefabs()) return;
+        
+        GenerateCity();
     }
 
-
-    /// <summary>
-    /// This is the "walker" logic, now with math-based path-checking.
-    /// </summary>
-    private void GrowCity()
+    [ContextMenu("Generate City")]
+    private void GenerateCity()
     {
         ClearCity();
 
-        Vector3 startPos = this.transform.position;
-        placedIntersectionPoints.Add(startPos);
+        // 1. The Start Point
+        Vector3 startPos = terrain.transform.position + 
+                           new Vector3(terrainGenerator.centerX, 0, terrainGenerator.centerY);
+        startPos.y = terrain.SampleHeight(startPos);
         
-        int startSteps;
-        int maxIter = maxGrowthIterations;
+        GameObject seedPrefab = Instantiate(startPrefab, startPos, Quaternion.identity);
+        spawnedRoads.Add(seedPrefab);
+        
+        BaseRoadConnector seedConnector = seedPrefab.GetComponent<BaseRoadConnector>();
+        
+        // Add all of its *exit* sockets as our first "checkpoints"
+        Debug.Log($"Spawning 'Start Prefab': {startPrefab.name}. Finding exits...");
 
-        startSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
-        walkerQueue.Enqueue(new RoadWalker(startPos, Quaternion.Euler(0, 0, 0), startSteps, maxIter));
-        
-        startSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
-        walkerQueue.Enqueue(new RoadWalker(startPos, Quaternion.Euler(0, 90, 0), startSteps, maxIter));
-        
-        startSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
-        walkerQueue.Enqueue(new RoadWalker(startPos, Quaternion.Euler(0, 180, 0), startSteps, maxIter));
-        
-        startSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
-        walkerQueue.Enqueue(new RoadWalker(startPos, Quaternion.Euler(0, 270, 0), startSteps, maxIter));
-
-        // --- Main Growth Loop ---
-        while(walkerQueue.Count > 0)
+        foreach (var socket in seedConnector.GetExitSockets()) 
         {
-            RoadWalker walker = walkerQueue.Dequeue();
+            Vector3 worldPos = seedPrefab.transform.TransformPoint(socket.localPosition);
+            Quaternion worldRot = seedPrefab.transform.rotation * socket.localRotation;
             
-            if (walker.iterationsLeft <= 0) continue;
-
-            // 1. Calculate New Position
-            float roadLength = walker.stepsToGrow * roadPrefabTileLength;
-            Vector3 roadDirection = walker.rotation * Vector3.forward;
-            Vector3 endPos = walker.startPosition + roadDirection * roadLength;
-
-            if (terrain != null) endPos.y = terrain.SampleHeight(endPos);
-
-            // 2. Check if New Position is Valid
-            if (constrainToFlatZone && !IsOnFlatZone(endPos))
-            {
-                continue; // Outside allowed area
-            }
-            
-            if (IsTooCloseToOtherIntersection(endPos, walker.startPosition))
-            {
-                continue; // Overlaps another intersection
-            }
-
-            // --- THIS IS THE FIX ---
-            // 3. Check if the PATH is valid (doesn't cross another road)
-            if (DoesPathMathematicallyCross(walker.startPosition, endPos))
-            {
-                continue; // Path is blocked! Kill this walker.
-            }
-            // -----------------------
-
-            // --- 4. If Valid: Place Intersection & Spawn New Walkers ---
-            placedIntersectionPoints.Add(endPos);
-            allRoadSegments.Add(new RoadSegment(walker.startPosition, endPos));
-
-            int newIterations = walker.iterationsLeft - 1;
-            int nextSteps;
-            
-            // Walker 1: North (Straight)
-            nextSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
-            Quaternion forwardRot = walker.rotation;
-            walkerQueue.Enqueue(new RoadWalker(endPos, forwardRot, nextSteps, newIterations));
-
-            // Walker 2: West (Left)
-            nextSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
-            Quaternion leftRot = walker.rotation * Quaternion.Euler(0, -90, 0);
-            walkerQueue.Enqueue(new RoadWalker(endPos, leftRot, nextSteps, newIterations));
-
-            // Walker 3: East (Right)
-            nextSteps = Random.Range(minStepsToIntersection, maxStepsToIntersection + 1);
-            Quaternion rightRot = walker.rotation * Quaternion.Euler(0, 90, 0);
-            walkerQueue.Enqueue(new RoadWalker(endPos, rightRot, nextSteps, newIterations));
+            // Start with a spacing of 0
+            checkpointStack.Push(new SocketAgent(worldPos, worldRot, 0)); 
+            occupiedSocketPositions.Add(RoundVector(worldPos));
+        }
+        
+        var entrySocket = seedConnector.FindEntrySocket();
+        if (entrySocket != null)
+        {
+            Vector3 entryWorldPos = seedPrefab.transform.TransformPoint(entrySocket.localPosition);
+            occupiedSocketPositions.Add(RoundVector(entryWorldPos));
         }
 
-        InstantiateCity();
-    }
-    
-    
-    private bool IsTooCloseToOtherIntersection(Vector3 newPos, Vector3 startPos)
-    {
-        foreach(Vector3 existingPos in placedIntersectionPoints)
-        {
-            // Don't check against our *own* starting point
-            if (existingPos == startPos) continue;
-
-            if ((newPos - existingPos).sqrMagnitude < (intersectionClearance * intersectionClearance))
-            {
-                return true; 
-            }
-        }
-        return false; 
-    }
-
-
-    /// <summary>
-    /// This function takes the generated data and spawns the prefabs.
-    /// </summary>
-    private void InstantiateCity()
-    {
-        GameObject roadParent = new GameObject("Roads");
-        GameObject buildingParent = new GameObject("Buildings");
-        GameObject intersectionParent = new GameObject("Intersections");
+        Debug.Log($"Found {checkpointStack.Count} valid exits to explore.");
         
-        roadParent.transform.SetParent(this.transform);
-        buildingParent.transform.SetParent(this.transform);
-        intersectionParent.transform.SetParent(this.transform);
-
-        // --- 1. Instantiate Intersections ---
-        if (intersectionPrefab != null)
+        // 2. The Main Loop (Explorer)
+        while (checkpointStack.Count > 0)
         {
-            foreach (Vector3 pos in placedIntersectionPoints)
-            {
-                Instantiate(intersectionPrefab, pos, Quaternion.identity, intersectionParent.transform);
-            }
-        }
-
-        // --- 2. Instantiate Roads (Fixed) ---
-        if (roadPrefab != null)
-        {
-            foreach (RoadSegment segment in allRoadSegments)
-            {
-                Vector3 groundedDirection = (segment.end - segment.start).normalized;
-                Quaternion rotation = Quaternion.LookRotation(groundedDirection);
-
-                Vector3 roadStartPos = segment.start + (groundedDirection * intersectionRadius);
-                Vector3 roadEndPos = segment.end - (groundedDirection * intersectionRadius);
-                float segmentLength = Vector3.Distance(roadStartPos, roadEndPos);
-
-                if (segmentLength < roadPrefabTileLength) continue; 
+            SocketAgent currentCheckpoint = checkpointStack.Pop();
             
-                float distanceCovered = 0f;
-                while (distanceCovered < segmentLength)
+            Vector3 currentPos = currentCheckpoint.worldPosition;
+            Quaternion currentRot = currentCheckpoint.worldRotation;
+            int currentSpacing = currentCheckpoint.currentStraightSpacing; // Get the current spacing
+
+            // 3. Phase 1: Build Straight Roads
+            int straightCount = Random.Range(minStraightSteps, maxStraightSteps + 1);
+            bool hitWall = false;
+
+            for (int i = 0; i < straightCount; i++)
+            {
+                // --- NEW: "Subprogram" logic ---
+                GameObject prefab;
+                if (currentSpacing >= minSpacingForSpecial && Random.value < chanceForSpecial)
                 {
-                    float tileCenter = distanceCovered + (roadPrefabTileLength / 2.0f);
-                    if (tileCenter > segmentLength) break;
-                    
-                    float t = tileCenter / segmentLength;
-                    Vector3 tilePos = Vector3.Lerp(roadStartPos, roadEndPos, t);
-                    
-                    Instantiate(roadPrefab, tilePos, rotation, roadParent.transform);
-                    
-                    distanceCovered += roadPrefabTileLength;
+                    // Place a "special" road
+                    prefab = specialStraightPrefab;
+                    currentSpacing = 0; // Reset spacing
                 }
+                else
+                {
+                    // Place a "default" road
+                    prefab = defaultStraightPrefab;
+                    currentSpacing++; // Increment spacing
+                }
+                // --- End of Subprogram ---
+                
+                BaseRoadConnector connector = prefab.GetComponent<BaseRoadConnector>();
+                BaseRoadConnector.ConnectionPoint entrySocketForStraight = connector.FindEntrySocket();
+                
+                (Vector3 newPos, Quaternion newRot) = CalculateNewTransform(currentPos, currentRot, entrySocketForStraight);
+                
+                Vector3 exitPos = newPos + (newRot * connector.GetExitSocket().localPosition);
+                if (!IsStraightSegmentValid(currentPos, exitPos, newPos, newRot, connector))
+                {
+                    hitWall = true; 
+                    break; 
+                }
+
+                GameObject newRoad = Instantiate(prefab, newPos, newRot);
+                spawnedRoads.Add(newRoad);
+                
+                AddSocketsToOccupiedList(newRoad, connector, entrySocketForStraight);
+                placedRoadSegments.Add(new RoadSegment(new Vector2(currentPos.x, currentPos.z), new Vector2(exitPos.x, exitPos.z)));
+
+                // Update "current position" for the *next* loop
+                BaseRoadConnector.ConnectionPoint exitSocket = connector.GetExitSocket();
+                currentPos = newRoad.transform.TransformPoint(exitSocket.localPosition);
+                currentRot = newRoad.transform.rotation * exitSocket.localRotation;
             }
+            
+            // 4. Phase 2: Build Intersection
+            if (hitWall)
+            {
+                continue; 
+            }
+            
+            GameObject intPrefab = GetRandomIntersectionPrefab();
+            if (intPrefab == null) continue;
+            
+            BaseRoadConnector intConnector = intPrefab.GetComponent<BaseRoadConnector>();
+            BaseRoadConnector.ConnectionPoint intEntrySocket = intConnector.FindEntrySocket();
+
+            (Vector3 intPos, Quaternion intRot) = CalculateNewTransform(currentPos, currentRot, intEntrySocket);
+            
+            if (!IsIntersectionValid(currentPos, intPos, intRot, intConnector, intEntrySocket))
+            {
+                continue; 
+            }
+            
+            GameObject newIntersection = Instantiate(intPrefab, intPos, intRot);
+            spawnedRoads.Add(newIntersection);
+            
+            // --- NEW: Pass the 'currentSpacing' to the new sockets ---
+            AddSocketsToCheckpoints(newIntersection, intConnector, intEntrySocket, currentSpacing);
+            
+            placedRoadSegments.Add(new RoadSegment(new Vector2(currentPos.x, currentPos.z), new Vector2(intPos.x, intPos.z)));
         }
         
-        // --- 3. Instantiate Buildings (FIXED ROTATION) ---
-        if (buildingPrefab != null)
-        {
-            foreach (RoadSegment segment in allRoadSegments)
-            {
-                float roadLength = Vector3.Distance(segment.start, segment.end);
-                
-                // --- THIS IS THE FIX ---
-                // Get the *actual* direction of the grounded road segment
-                Vector3 roadDirection = (segment.end - segment.start).normalized;
-                Vector3 rightDir = Vector3.Cross(roadDirection, Vector3.up).normalized;
-                // -----------------------
-
-                int buildingsPerSide = Mathf.FloorToInt(roadLength / buildingSpacing);
-                
-                for (int i = 0; i < buildingsPerSide; i++)
-                {
-                    float t = (i * buildingSpacing + (buildingSpacing / 2)) / roadLength;
-                    Vector3 positionOnRoad = Vector3.Lerp(segment.start, segment.end, t);
-
-                    // --- Right Side ---
-                    Vector3 buildingPosRight = positionOnRoad + (rightDir * (buildingOffset + buildingCheckRadius)); 
-                    if (terrain != null) buildingPosRight.y = terrain.SampleHeight(buildingPosRight);
-                    
-                    if (CheckSlope(buildingPosRight, maxBuildingSlope) && !IsSpotOccupied(buildingPosRight))
-                    {
-                        Quaternion buildingRotRight = Quaternion.LookRotation(-rightDir); // Face the road
-                        Instantiate(buildingPrefab, buildingPosRight, buildingRotRight, buildingParent.transform);
-                    }
-
-                    // --- Left Side ---
-                    Vector3 buildingPosLeft = positionOnRoad - (rightDir * (buildingOffset + buildingCheckRadius));
-                    if (terrain != null) buildingPosLeft.y = terrain.SampleHeight(buildingPosLeft);
-
-                    if (CheckSlope(buildingPosLeft, maxBuildingSlope) && !IsSpotOccupied(buildingPosLeft))
-                    {
-                        Quaternion buildingRotLeft = Quaternion.LookRotation(rightDir); // Face the road
-                        Instantiate(buildingPrefab, buildingPosLeft, buildingRotLeft, buildingParent.transform);
-                    }
-                }
-            }
-        }
+        Debug.Log("City Generation Complete. Explored all paths.");
     }
 
-    
-    // ---
-    // --- HELPER METHODS ---
-    // ---
+    #region Helper Functions
 
-    #region Road Intersection Math (The Fix)
-
-    /// <summary>
-    /// Checks our new proposed road against all roads we've already planned.
-    /// </summary>
-    private bool DoesPathMathematicallyCross(Vector3 newStart, Vector3 newEnd)
+    (Vector3, Quaternion) CalculateNewTransform(Vector3 socketPos, Quaternion socketRot, BaseRoadConnector.ConnectionPoint pieceEntrySocket)
     {
-        // We only care about 2D (X, Z) coordinates for crossing
-        Vector2 p1 = new Vector2(newStart.x, newStart.z);
-        Vector2 p2 = new Vector2(newEnd.x, newEnd.z);
+        Quaternion newRot = socketRot; 
+        Vector3 newPos = socketPos; 
+        return (newPos, newRot);
+    }
+    
+    // Check for a straight road
+    bool IsStraightSegmentValid(Vector3 entryWorldPos, Vector3 exitWorldPos, Vector3 newPiecePos, Quaternion newPieceRot, BaseRoadConnector connector)
+    {
+        if (constrainToFlatZone && !IsOnFlatZone(exitWorldPos)) return false;
+        if (IsSocketOccupied(exitWorldPos)) return false;
+        
+        // --- Use the new, correct math check ---
+        if (DoesPathMathematicallyCross(new Vector2(entryWorldPos.x, entryWorldPos.z), new Vector2(exitWorldPos.x, exitWorldPos.z))) return false;
 
-        foreach (RoadSegment segment in allRoadSegments)
+        return true;
+    }
+
+    // Check for an intersection
+    bool IsIntersectionValid(Vector3 entryWorldPos, Vector3 newPiecePos, Quaternion newPieceRot, BaseRoadConnector connector, BaseRoadConnector.ConnectionPoint entrySocket)
+    {
+        foreach (var socket in connector.GetExitSockets())
         {
-            Vector2 p3 = new Vector2(segment.start.x, segment.start.z);
-            Vector2 p4 = new Vector2(segment.end.x, segment.end.z);
-
-            if (LineSegmentsIntersect(p1, p2, p3, p4))
+            Vector3 exitWorldPos = newPiecePos + (newPieceRot * socket.localPosition);
+            
+            if (constrainToFlatZone && !IsOnFlatZone(exitWorldPos)) return false; 
+            if (IsSocketOccupied(exitWorldPos)) return false;
+        }
+        
+        foreach (var exitSocket in connector.GetExitSockets())
+        {
+            Vector3 exitWorldPos = newPiecePos + (newPieceRot * exitSocket.localPosition);
+            
+            // --- Use the new, correct math check ---
+            if (DoesPathMathematicallyCross(new Vector2(entryWorldPos.x, entryWorldPos.z), new Vector2(exitWorldPos.x, exitWorldPos.z)))
             {
-                // Our new road crosses an existing one. This is invalid.
-                return true; 
+                return false;
             }
         }
         
+        return true;
+    }
+
+    GameObject GetRandomIntersectionPrefab()
+    {
+        List<GameObject> allIntersectionPrefabs = new List<GameObject>();
+        allIntersectionPrefabs.AddRange(cornerPrefabs);
+        allIntersectionPrefabs.AddRange(threeWayPrefabs);
+        allIntersectionPrefabs.AddRange(crossroadPrefabs);
+        allIntersectionPrefabs.AddRange(roundaboutPrefabs);
+        
+        if (allIntersectionPrefabs.Count == 0)
+        {
+            Debug.LogError("No intersection prefabs defined!");
+            return null;
+        }
+        return allIntersectionPrefabs[Random.Range(0, allIntersectionPrefabs.Count)];
+    }
+
+    void AddSocketsToOccupiedList(GameObject piece, BaseRoadConnector connector, BaseRoadConnector.ConnectionPoint entrySocketToIgnore)
+    {
+        foreach (var socket in connector.sockets)
+        {
+            if (socket == entrySocketToIgnore) continue;
+            
+            Vector3 worldPos = piece.transform.TransformPoint(socket.localPosition);
+            occupiedSocketPositions.Add(RoundVector(worldPos));
+        }
+    }
+    
+    // --- NEW: This function now takes 'spacing' ---
+    void AddSocketsToCheckpoints(GameObject piece, BaseRoadConnector connector, BaseRoadConnector.ConnectionPoint entrySocketToIgnore, int currentSpacing)
+    {
+        foreach (var socket in connector.GetExitSockets()) // <-- Only add EXITS
+        {
+            if (socket == entrySocketToIgnore) continue;
+
+            Vector3 worldPos = piece.transform.TransformPoint(socket.localPosition);
+            Quaternion worldRot = piece.transform.rotation * socket.localRotation;
+            
+            // When we add a new checkpoint from an intersection, we RESET its spacing to 0
+            checkpointStack.Push(new SocketAgent(worldPos, worldRot, 0)); 
+            
+            occupiedSocketPositions.Add(RoundVector(worldPos));
+        }
+    }
+    
+    bool IsSocketOccupied(Vector3 worldPos)
+    {
+        return occupiedSocketPositions.Contains(RoundVector(worldPos));
+    }
+
+    private Vector3 RoundVector(Vector3 v)
+    {
+        return new Vector3(
+            Mathf.Round(v.x * 10f) / 10f,
+            Mathf.Round(v.y * 10f) / 10f,
+            Mathf.Round(v.z * 10f) / 10f
+        );
+    }
+    
+    private bool IsOnFlatZone(Vector3 worldPos)
+    {
+        if (terrainGenerator == null || terrain == null) return true; 
+        Vector3 terrainLocalPos = worldPos - terrain.transform.position;
+        int terrainX = (int)terrainLocalPos.x;
+        int terrainY = (int)terrainLocalPos.z;
+
+        float pathBlend = terrainGenerator.GetPublicPathBlend(terrainX, terrainY);
+        if (pathBlend > 0.1f) return true;
+
+        float dist = Vector2.Distance(new Vector2(terrainX, terrainY), new Vector2(terrainGenerator.centerX, terrainGenerator.centerY));
+        if (dist <= terrainGenerator.centerRadius * terrainGenerator.centerBlendFactor) return true; 
+
+        return false;
+    }
+
+    // ---
+    // --- THIS IS THE FIXED MATH FUNCTION ---
+    // ---
+    #region Road Intersection Math
+    
+    private bool DoesPathMathematicallyCross(Vector2 p1, Vector2 p2)
+    {
+        foreach (RoadSegment segment in placedRoadSegments)
+        {
+            if (LineSegmentsIntersect(p1, p2, segment.p1, segment.p2))
+            {
+                return true; // We found a crossing
+            }
+        }
         return false; // Path is clear
     }
 
-    /// <summary>
-    /// Standard 2D math to find orientation of ordered triplet (p, q, r).
-    /// </summary>
-    /// <returns>0 = Collinear, 1 = Clockwise, 2 = Counterclockwise</returns>
+    // This is the new, correct function that handles collinear lines
+    private bool LineSegmentsIntersect(Vector2 p1, Vector2 q1, Vector2 p2, Vector2 q2)
+    {
+        // Find the four orientations needed
+        int o1 = GetOrientation(p1, q1, p2);
+        int o2 = GetOrientation(p1, q1, q2);
+        int o3 = GetOrientation(p2, q2, p1);
+        int o4 = GetOrientation(p2, q2, q1);
+
+        // --- This is the ONLY case we care about ---
+        // This is the "General Case" where the lines
+        // are not on the same line and properly cross in the middle.
+        if (o1 != o2 && o3 != o4)
+        {
+            return true;
+        }
+
+        // All other cases (collinear, touching at an end, etc.)
+        // are NOT a "crossing" for our purposes.
+        return false;
+    }
+    
+    // Finds orientation (0 = collinear, 1 = clockwise, 2 = counter-clockwise)
     private int GetOrientation(Vector2 p, Vector2 q, Vector2 r)
     {
         float val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
-        if (Mathf.Abs(val) < 0.0001f) return 0; // Collinear
-        return (val > 0) ? 1 : 2; // Clockwise or Counterclockwise
+        if (Mathf.Abs(val) < 0.0001f) return 0; // collinear
+        return (val > 0) ? 1 : 2; // clock or counter-clock wise
     }
 
-    /// <summary>
-    /// Given that p, q, and r are collinear, check if point q lies on segment 'pr'
-    /// </summary>
+    // Checks if point q lies on line segment 'pr'
     private bool OnSegment(Vector2 p, Vector2 q, Vector2 r)
     {
         if (q.x <= Mathf.Max(p.x, r.x) && q.x >= Mathf.Min(p.x, r.x) &&
@@ -356,111 +393,40 @@ public class CityGenerator : MonoBehaviour
         }
         return false;
     }
-
-    /// <summary>
-    /// The main function that returns true if line segment 'p1q1' and 'p2q2' intersect.
-    /// </summary>
-    private bool LineSegmentsIntersect(Vector2 p1, Vector2 q1, Vector2 p2, Vector2 q2)
-    {
-        // Find the four orientations needed
-        int o1 = GetOrientation(p1, q1, p2);
-        int o2 = GetOrientation(p1, q1, q2);
-        int o3 = GetOrientation(p2, q2, p1);
-        int o4 = GetOrientation(p2, q2, q1);
-
-        // --- General Case ---
-        // If (p1, q1, p2) and (p1, q1, q2) have different orientations,
-        // and (p2, q2, p1) and (p2, q2, q1) have different orientations.
-        if (o1 != o2 && o3 != o4)
-        {
-            // We need to exclude the case where they just "touch" at an endpoint,
-            // as this is a valid intersection, not a crossing.
-            if (o1 == 0 || o2 == 0 || o3 == 0 || o4 == 0)
-            {
-                return false; // They are "touching" at an endpoint
-            }
-            return true; // They are definitely crossing in the middle
-        }
-
-        // --- Special Cases ---
-        // These are for when the lines are collinear
-        if (o1 == 0 && OnSegment(p1, p2, q1)) return true;
-        if (o2 == 0 && OnSegment(p1, q2, q1)) return true;
-        if (o3 == 0 && OnSegment(p2, p1, q2)) return true;
-        if (o4 == 0 && OnSegment(p2, q1, q2)) return true;
-
-        return false; // Doesn't fall in any of the above cases
-    }
-
-
+    
     #endregion
 
-    #region Other Helper Methods
-    private bool IsSpotOccupied(Vector3 pos)
+    private bool ValidatePrefabs()
     {
-        if (Physics.CheckSphere(pos, buildingCheckRadius, buildingLayer))
-        {
-            return true; 
-        }
-        return false; 
-    }
-    
-    private bool IsOnFlatZone(Vector3 worldPos)
-    {
-        if (terrainGenerator == null || terrain == null) return true; 
-
-        Vector3 terrainLocalPos = worldPos - terrain.transform.position;
-        int terrainX = (int)terrainLocalPos.x;
-        int terrainY = (int)terrainLocalPos.z;
-
-        float pathBlend = terrainGenerator.GetPublicPathBlend(terrainX, terrainY);
-        if (pathBlend > 0.1f) return true;
-
-        float dist = Vector2.Distance(
-            new Vector2(terrainX, terrainY),
-            new Vector2(terrainGenerator.centerX, terrainGenerator.centerY)
-        );
+        if (startPrefab == null) { Debug.LogError("Start Prefab is not set!"); return false; }
         
-        if (dist <= terrainGenerator.centerRadius * terrainGenerator.centerBlendFactor) return true; 
-
-        return false;
-    }
-
-    private bool CheckSlope(Vector3 worldPos, float maxSlope)
-    {
-        if (terrain == null) return true; 
-
-        TerrainData td = terrain.terrainData;
-        Vector3 terrainLocalPos = worldPos - terrain.transform.position;
-
-        float normX = terrainLocalPos.x / td.size.x;
-        float normZ = terrainLocalPos.z / td.size.z;
-
-        if (normX < 0 || normX > 1 || normZ < 0 || normZ > 1) return false;
-
-        float slope = td.GetSteepness(normX, normZ); 
-        return slope <= maxSlope;
+        // --- NEW: Check for new straight road setup ---
+        if (defaultStraightPrefab == null) { Debug.LogError("Default Straight Prefab is not set!"); return false; }
+        if (specialStraightPrefab == null) { Debug.LogError("Special Straight Prefab is not set! (Assign one, even if it's the same as the default)"); return false; }
+        
+        if (cornerPrefabs.Count == 0 && threeWayPrefabs.Count == 0 && crossroadPrefabs.Count == 0 && roundaboutPrefabs.Count == 0)
+        { Debug.LogError("You have no 'intersection' prefabs defined!"); return false; }
+        return true;
     }
 
     [ContextMenu("Clear City")]
     private void ClearCity()
     {
-        walkerQueue.Clear();
-        placedIntersectionPoints.Clear();
-        allRoadSegments.Clear();
+        StopAllCoroutines();
+        checkpointStack.Clear();
+        occupiedSocketPositions.Clear();
+        placedRoadSegments.Clear();
         
-        int childCount = transform.childCount;
-        for (int i = childCount - 1; i >= 0; i--)
+        foreach (var road in spawnedRoads)
         {
-            if (Application.isEditor && !Application.isPlaying)
+            if (road != null)
             {
-                DestroyImmediate(transform.GetChild(i).gameObject);
-            }
-            else
-            {
-                Destroy(transform.GetChild(i).gameObject);
+                if (Application.isPlaying) Destroy(road);
+                else DestroyImmediate(road);
             }
         }
+        spawnedRoads.Clear();
     }
+    
     #endregion
 }
