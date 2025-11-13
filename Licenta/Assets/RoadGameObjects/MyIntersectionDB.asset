@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8569077933140c45ab6cbe8b5369f55, type: 3}
+  m_Name: MyIntersectionDB
+  m_EditorClassIdentifier: Assembly-CSharp::IntersectionDatabase
+  IntersectionPrefabs:
+  - ConnectionCount: 4
+    Prefab: {fileID: 6734931922646262689, guid: a73f0f02d266086428f2cd61067b8087, type: 3}
+  - ConnectionCount: 2
+    Prefab: {fileID: 406373949730121986, guid: 555f66bd5ac925848ac61fe279067489, type: 3}
+  - ConnectionCount: 2
+    Prefab: {fileID: 2987910839735201157, guid: 657e72b0fe9cde846beeefd4da91c3a2, type: 3}
+  - ConnectionCount: 4
+    Prefab: {fileID: 929495447192181269, guid: 0615fb8cf42c7dc4db548896c508386c, type: 3}
+  - ConnectionCount: 4
+    Prefab: {fileID: 7806966196341523271, guid: 8ea54ea96d37ee14e8982450a15f497a, type: 3}
+  - ConnectionCount: 2
+    Prefab: {fileID: 1486642814235022194, guid: 6b09fc86339964d449a2ca793dfeb672, type: 3}
+  - ConnectionCount: 3
+    Prefab: {fileID: 2557627839724055131, guid: d4aff95491d5e5446889b04d7b4d539d, type: 3}
+  - ConnectionCount: 1
+    Prefab: {fileID: 843543918126694790, guid: ae5bb8bdd44032c42b8988f480546f34, type: 3}
+  - ConnectionCount: 1
+    Prefab: {fileID: 7423929739431382381, guid: 7b3edeeed7f00a040a5bf23bee095aee, type: 3}
+  - ConnectionCount: 3
+    Prefab: {fileID: 8728553610691737547, guid: 62ec883b8e7b8694aadf7aa23bbc2e11, type: 3}
+  - ConnectionCount: 3
+    Prefab: {fileID: 8073513272730006533, guid: 5984f17b21a526746bba29b545219522, type: 3}
+  - ConnectionCount: 3
+    Prefab: {fileID: 5612603756320645148, guid: 74d901bc381ce334ab5f0b54c6b2eee1, type: 3}
+  - ConnectionCount: 4
+    Prefab: {fileID: 1023783565564157261, guid: 4176c452584986e498b304107aba0d8c, type: 3}

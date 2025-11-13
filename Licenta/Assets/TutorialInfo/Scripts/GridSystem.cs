@@ -73,7 +73,7 @@ public class WindingPathTerrainGenerator : MonoBehaviour
 
     [Header("City Generation")]
     [Tooltip("Drag your CityGenerator GameObject here.")]
-    public CityGenerator cityGenerator; 
+    //public CityGenerator cityGenerator; 
 
     public float[,] pathMask;
     public List<Vector2[]> paths;
@@ -144,15 +144,15 @@ public class WindingPathTerrainGenerator : MonoBehaviour
         // Call the tree generation function
     GenerateTrees(terrainData, finalHeights);
 
-    if (cityGenerator != null)
-    {
-        Debug.Log("Terrain generation complete. Initializing City Generator...");
-        cityGenerator.Initialize(terrain, this);
-    }
-    else
-    {
-        Debug.LogWarning("No CityGenerator assigned to WindingPathTerrainGenerator. Skipping city generation.");
-    }
+    // if (cityGenerator != null)
+    // {
+    //     Debug.Log("Terrain generation complete. Initializing City Generator...");
+    //     cityGenerator.Initialize(terrain, this);
+    // }
+    // else
+    // {
+    //     Debug.LogWarning("No CityGenerator assigned to WindingPathTerrainGenerator. Skipping city generation.");
+    // }
 
     return terrainData;
 }
