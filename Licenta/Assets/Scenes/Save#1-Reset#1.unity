@@ -424,8 +424,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RoadGridManager
   BuildAreaCenter: {fileID: 1603708724}
-  MainTerrain: {fileID: 1283455779}
-  BuildRadius: 53
+  BuildRadius: 50
+  TerrainLayer:
+    serializedVersion: 2
+    m_Bits: 8
   SpawnHeightOffset: 0
 --- !u!4 &772941067
 Transform:
@@ -458,13 +460,26 @@ MonoBehaviour:
   - {fileID: 11400000, guid: f8f6a8db29f49ec4eb7e7d7c4f16e5f3, type: 2}
   - {fileID: 11400000, guid: cc0ed539d27f37849b44b31aa8cfc5bc, type: 2}
   - {fileID: 11400000, guid: 5a9c834847997e045a4e94d1bd980a5c, type: 2}
-  - {fileID: 11400000, guid: ece7990f8c78b914d87559c0f728f4ba, type: 2}
   - {fileID: 11400000, guid: a1d82901b21e31c4cb96c74e96d1919d, type: 2}
   - {fileID: 11400000, guid: 4345510e265a3b04296a38b0839de328, type: 2}
   - {fileID: 11400000, guid: 802597928796aba4a8bd6edd30ec13f5, type: 2}
   - {fileID: 11400000, guid: ddf2927ce430eb5468327c418af00f44, type: 2}
+  roadStraight: {fileID: 11400000, guid: 5bc0c675059d1cb4483783d6c30d7fa2, type: 2}
+  roadCorner: {fileID: 11400000, guid: eff4295dc6c233c4ba51dcf34fa1b39b, type: 2}
+  road3Way: {fileID: 11400000, guid: 5a9c834847997e045a4e94d1bd980a5c, type: 2}
+  road4Way: {fileID: 11400000, guid: 802597928796aba4a8bd6edd30ec13f5, type: 2}
+  StraightRotationOffset: 90
+  CornerRotationOffset: 0
+  ThreeWayRotationOffset: 90
+  FourWayRotationOffset: 0
+  MaxRoadsToBuild: 2
   NumberOfPOIs: 30
   MaxPlacementAttemptsPerPOI: 10
+  MinDistanceBetweenPOIs: 6
+  SpawnEdgePadding: 15
+  RunwayLength: 3
+  POIBufferSize: 2
+  StepDelay: 0.05
 --- !u!4 &932121062 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5739226587146662662, guid: d58be7082a3abaf4986a737d554761b7, type: 3}
@@ -482,7 +497,7 @@ GameObject:
   - component: {fileID: 1283455779}
   - component: {fileID: 1283455778}
   - component: {fileID: 1283455781}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Terrain
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -630,7 +645,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1603708724}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: AreaFlatCenter
   m_TagString: Untagged
   m_Icon: {fileID: 0}

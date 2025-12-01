@@ -3,53 +3,46 @@ using UnityEngine;
 
 public class RoadGridManager : MonoBehaviour
 {
-    [Header("Build Area Settings")]
-    [Tooltip("Transformer that defines the center of the build area.")]
+    [Header("Zona de Construcție")]
     public Transform BuildAreaCenter;
-
-    [Tooltip("The main terrain in the scene.")]
-    public Terrain MainTerrain; 
-
-    [Tooltip("Radius of the build area around the center.")]
     public float BuildRadius = 200f;
 
-    [Tooltip("Height offset when spawning prefabs.")]
-    public float SpawnHeightOffset = 1f;
+    [Header("Setări Teren")]
+    public LayerMask TerrainLayer; 
+    public float SpawnHeightOffset = 0.1f;
 
-    private float sampledFlatHeight = 0f;
-
+    // Dicționar care mapează coordonata gridului -> Celula ocupată
     private class GridCell
     {
         public PrefabData PlacedPrefabData;
         public GameObject PlacedInstance;
+        public Vector2Int RootPosition; // Unde e pivotul obiectului
     }
     private Dictionary<Vector2Int, GridCell> gridData = new Dictionary<Vector2Int, GridCell>();
-    public void InitializeTerrainHeight()
-    {
-        if (MainTerrain == null || BuildAreaCenter == null)
-        {
-            Debug.LogError("[RoadGen] ATENTION: MainTerrain or BuildAreaCenter is not assigned!");
-            return;
-        }
 
-        Vector3 centerPos = BuildAreaCenter.position;
-
-        sampledFlatHeight = MainTerrain.SampleHeight(centerPos);
-        
-        Debug.Log($"[RoadGen] The high of the terrain was found at: {sampledFlatHeight}");
-    }
-
+    // Verifică dacă TOATĂ aria (Size) este liberă
     public bool IsAreaFree(Vector2Int position, Vector2Int size)
     {
+        // Calculăm colțul stânga-jos (presupunând pivot central sau ajustat)
+        // Pentru simplitate, considerăm position ca fiind pivotul.
+        // Ajustează startX/Y în funcție de cum sunt setate pivoturile prefab-urilor tale.
+        // Aici presupunem pivotul în centru pentru verificare:
+        
+        int startX = position.x - (size.x / 2);
+        int startY = position.y - (size.y / 2);
+
+        // Dacă size e 1x1, bucla rulează o dată. Dacă e 2x2, de 4 ori.
         for (int x = 0; x < size.x; x++)
         {
             for (int y = 0; y < size.y; y++)
             {
-                Vector2Int cellCoord = new Vector2Int(position.x + x, position.y + y);
-                if (gridData.ContainsKey(cellCoord) || !IsCellInsideBuildArea(cellCoord))
-                {
-                    return false; 
-                }
+                Vector2Int cellCoord = new Vector2Int(startX + x, startY + y);
+                
+                // 1. E ocupat în grid?
+                if (gridData.ContainsKey(cellCoord)) return false;
+                
+                // 2. E în afara cercului?
+                if (!IsCellInsideBuildArea(cellCoord)) return false;
             }
         }
         return true; 
@@ -57,92 +50,101 @@ public class RoadGridManager : MonoBehaviour
 
     public void PlacePrefab(PrefabData data, Vector2Int position, Quaternion rotation)
     {
+        if (!_isHeightCalculated) CalculateFlatZoneHeight();
 
-        float heightY = sampledFlatHeight;
-
-        Vector3 worldPosition = new Vector3(position.x, heightY + SpawnHeightOffset, position.y);
-
+        Vector3 worldPosition = new Vector3(position.x, _flatZoneHeight + SpawnHeightOffset, position.y);
         GameObject instance = Instantiate(data.Prefab, worldPosition, rotation);
         
-        GridCell cell = new GridCell
-        {
-            PlacedPrefabData = data,
-            PlacedInstance = instance
+        GridCell cell = new GridCell { 
+            PlacedPrefabData = data, 
+            PlacedInstance = instance,
+            RootPosition = position
         };
+
+        // MARCAM TOATE CELULELE OCUPATE DE ACEST PREFAB
+        int startX = position.x - (data.Size.x / 2);
+        int startY = position.y - (data.Size.y / 2);
 
         for (int x = 0; x < data.Size.x; x++)
         {
             for (int y = 0; y < data.Size.y; y++)
             {
-                Vector2Int cellCoord = new Vector2Int(position.x + x, position.y + y);
-                gridData[cellCoord] = cell; 
+                Vector2Int cellCoord = new Vector2Int(startX + x, startY + y);
+                if(!gridData.ContainsKey(cellCoord))
+                {
+                    gridData[cellCoord] = cell; 
+                }
             }
         }
     }
 
-    #region Modified Functions
+    public void MarkAreaOccupied(Vector2Int center, Vector2Int size)
+    {
+        int startX = center.x - (size.x / 2);
+        int startY = center.y - (size.y / 2);
+
+        for (int x = 0; x < size.x; x++)
+        {
+            for (int y = 0; y < size.y; y++)
+            {
+                Vector2Int pos = new Vector2Int(startX + x, startY + y);
+                if (!gridData.ContainsKey(pos))
+                {
+                    gridData.Add(pos, new GridCell { PlacedInstance = null, PlacedPrefabData = null }); 
+                }
+            }
+        }
+    }
+
     public void RemovePrefabAt(Vector2Int position)
     {
         if (gridData.TryGetValue(position, out GridCell cell))
         {
-            Destroy(cell.PlacedInstance);
+            // Distrugem obiectul fizic
+            if(cell.PlacedInstance != null) Destroy(cell.PlacedInstance);
             
+            // Căutăm TOATE cheile care referă acest obiect (pentru obiecte 2x2, 3x3)
             List<Vector2Int> keysToRemove = new List<Vector2Int>();
-            foreach (var pair in gridData)
-            {
-                if (pair.Value.PlacedInstance == cell.PlacedInstance)
+            foreach (var pair in gridData) 
+            { 
+                // Verificăm instanța sau datele
+                if (pair.Value == cell || (cell.PlacedInstance != null && pair.Value.PlacedInstance == cell.PlacedInstance)) 
                 {
-                    keysToRemove.Add(pair.Key);
+                    keysToRemove.Add(pair.Key); 
                 }
             }
-            
-            foreach (var key in keysToRemove)
-            {
-                gridData.Remove(key);
-            }
+            foreach (var key in keysToRemove) { gridData.Remove(key); }
         }
     }
 
     public GameObject GetPrefabAt(Vector2Int position)
     {
-        if (gridData.TryGetValue(position, out GridCell cell))
-        {
-            return cell.PlacedInstance;
-        }
+        if (gridData.TryGetValue(position, out GridCell cell)) return cell.PlacedInstance;
         return null;
     }
-    #endregion
+
+    // --- Internals ---
+    private float _flatZoneHeight = 0f; 
+    private bool _isHeightCalculated = false;
+
+    private void CalculateFlatZoneHeight()
+    {
+        if (BuildAreaCenter == null) return;
+        Vector3 centerPos = BuildAreaCenter.position;
+        Vector3 rayOrigin = new Vector3(centerPos.x, 1000f, centerPos.z);
+        if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, 2000f, TerrainLayer))
+        {
+            _flatZoneHeight = hit.point.y;
+            _isHeightCalculated = true;
+        }
+    }
 
     private bool IsCellInsideBuildArea(Vector2Int cellCoord)
     {
-        if (BuildAreaCenter == null)
-        {
-            return false;
-        }
-
+        if (BuildAreaCenter == null) return false;
         Vector2 pos = new Vector2(cellCoord.x, cellCoord.y);
         Vector3 center3D = BuildAreaCenter.position;
         Vector2 center = new Vector2(center3D.x, center3D.z);
-        
         return Vector2.Distance(pos, center) < BuildRadius;
-    }
-    
-    private void OnDrawGizmosSelected()
-    {
-        if (BuildAreaCenter != null)
-        {
-            float yPos = Application.isPlaying ? sampledFlatHeight : BuildAreaCenter.position.y;
-            
-            Vector3 center = new Vector3(BuildAreaCenter.position.x, yPos, BuildAreaCenter.position.z);
-            Gizmos.color = Color.cyan;
-            Vector3 from = center + new Vector3(BuildRadius, 0, 0);
-            for (int i = 1; i <= 36; i++)
-            {
-                float angle = i * 10f * Mathf.Deg2Rad;
-                Vector3 to = center + new Vector3(Mathf.Cos(angle) * BuildRadius, 0, Mathf.Sin(angle) * BuildRadius);
-                Gizmos.DrawLine(from, to);
-                from = to;
-            }
-        }
     }
 }
