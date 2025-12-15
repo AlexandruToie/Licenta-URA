@@ -3,65 +3,59 @@ using UnityEngine;
 
 public class RoadGridManager : MonoBehaviour
 {
-    [Header("Zona de Construcție")]
+    [Header("Construction Zone Settings")]
     public Transform BuildAreaCenter;
     public float BuildRadius = 200f;
 
-    [Header("Setări Teren")]
+    [Header("Terrain Settings")]
     public LayerMask TerrainLayer; 
     public float SpawnHeightOffset = 0.1f;
 
-    // Dicționar care mapează coordonata gridului -> Celula ocupată
+    //Internal Data Structure
     private class GridCell
     {
         public PrefabData PlacedPrefabData;
         public GameObject PlacedInstance;
-        public Vector2Int RootPosition; // Unde e pivotul obiectului
+        public Vector2Int RootPosition; // Position of the prefab's pivot
     }
     private Dictionary<Vector2Int, GridCell> gridData = new Dictionary<Vector2Int, GridCell>();
 
-    // Verifică dacă TOATĂ aria (Size) este liberă
-    public bool IsAreaFree(Vector2Int position, Vector2Int size)
+    // Verify if an area is free for placement
+    public bool IsAreaFree(Vector2Int position, Vector2Int size) // Center position and size
     {
-        // Calculăm colțul stânga-jos (presupunând pivot central sau ajustat)
-        // Pentru simplitate, considerăm position ca fiind pivotul.
-        // Ajustează startX/Y în funcție de cum sunt setate pivoturile prefab-urilor tale.
-        // Aici presupunem pivotul în centru pentru verificare:
-        
         int startX = position.x - (size.x / 2);
         int startY = position.y - (size.y / 2);
 
-        // Dacă size e 1x1, bucla rulează o dată. Dacă e 2x2, de 4 ori.
-        for (int x = 0; x < size.x; x++)
+        for (int x = 0; x < size.x; x++) // Iterate through area
         {
-            for (int y = 0; y < size.y; y++)
+            for (int y = 0; y < size.y; y++) // Check each cell
             {
                 Vector2Int cellCoord = new Vector2Int(startX + x, startY + y);
                 
-                // 1. E ocupat în grid?
+                // 1. Is already occupied?
                 if (gridData.ContainsKey(cellCoord)) return false;
                 
-                // 2. E în afara cercului?
+                // 2. Is inside build area?
                 if (!IsCellInsideBuildArea(cellCoord)) return false;
             }
         }
         return true; 
     }
 
-    public void PlacePrefab(PrefabData data, Vector2Int position, Quaternion rotation)
+    public void PlacePrefab(PrefabData data, Vector2Int position, Quaternion rotation) // Places prefab at position
     {
-        if (!_isHeightCalculated) CalculateFlatZoneHeight();
+        if (!_isHeightCalculated) CalculateFlatZoneHeight(); // Ensure height is calculated
 
-        Vector3 worldPosition = new Vector3(position.x, _flatZoneHeight + SpawnHeightOffset, position.y);
-        GameObject instance = Instantiate(data.Prefab, worldPosition, rotation);
+        Vector3 worldPosition = new Vector3(position.x, _flatZoneHeight + SpawnHeightOffset, position.y); // Convert to world position
+        GameObject instance = Instantiate(data.Prefab, worldPosition, rotation); // Instantiate prefab
         
         GridCell cell = new GridCell { 
             PlacedPrefabData = data, 
             PlacedInstance = instance,
             RootPosition = position
-        };
+        };// Create grid cell entry
 
-        // MARCAM TOATE CELULELE OCUPATE DE ACEST PREFAB
+        // Mark all occupied cells
         int startX = position.x - (data.Size.x / 2);
         int startY = position.y - (data.Size.y / 2);
 
@@ -78,7 +72,7 @@ public class RoadGridManager : MonoBehaviour
         }
     }
 
-    public void MarkAreaOccupied(Vector2Int center, Vector2Int size)
+    public void MarkAreaOccupied(Vector2Int center, Vector2Int size) // Marks area as occupied without placing prefab
     {
         int startX = center.x - (size.x / 2);
         int startY = center.y - (size.y / 2);
@@ -87,7 +81,7 @@ public class RoadGridManager : MonoBehaviour
         {
             for (int y = 0; y < size.y; y++)
             {
-                Vector2Int pos = new Vector2Int(startX + x, startY + y);
+                Vector2Int pos = new Vector2Int(startX + x, startY + y); // Calculate cell position
                 if (!gridData.ContainsKey(pos))
                 {
                     gridData.Add(pos, new GridCell { PlacedInstance = null, PlacedPrefabData = null }); 
@@ -96,18 +90,18 @@ public class RoadGridManager : MonoBehaviour
         }
     }
 
-    public void RemovePrefabAt(Vector2Int position)
+    public void RemovePrefabAt(Vector2Int position) // Removes prefab at position
     {
         if (gridData.TryGetValue(position, out GridCell cell))
         {
-            // Distrugem obiectul fizic
+            // Destroy the instance if it exists
             if(cell.PlacedInstance != null) Destroy(cell.PlacedInstance);
             
-            // Căutăm TOATE cheile care referă acest obiect (pentru obiecte 2x2, 3x3)
+            // Search and remove all occupied cells
             List<Vector2Int> keysToRemove = new List<Vector2Int>();
             foreach (var pair in gridData) 
             { 
-                // Verificăm instanța sau datele
+                // Verify if the cell belongs to the same prefab instance
                 if (pair.Value == cell || (cell.PlacedInstance != null && pair.Value.PlacedInstance == cell.PlacedInstance)) 
                 {
                     keysToRemove.Add(pair.Key); 
@@ -117,17 +111,16 @@ public class RoadGridManager : MonoBehaviour
         }
     }
 
-    public GameObject GetPrefabAt(Vector2Int position)
+    public GameObject GetPrefabAt(Vector2Int position) // Returns prefab instance at position
     {
-        if (gridData.TryGetValue(position, out GridCell cell)) return cell.PlacedInstance;
+        if (gridData.TryGetValue(position, out GridCell cell)) return cell.PlacedInstance; 
         return null;
     }
 
-    // --- Internals ---
-    private float _flatZoneHeight = 0f; 
-    private bool _isHeightCalculated = false;
+    private float _flatZoneHeight = 0f; // Cached height of the flat build zone
+    private bool _isHeightCalculated = false; // Flag to check if height is calculated
 
-    private void CalculateFlatZoneHeight()
+    private void CalculateFlatZoneHeight() // Raycasts down to find terrain height
     {
         if (BuildAreaCenter == null) return;
         Vector3 centerPos = BuildAreaCenter.position;
@@ -139,7 +132,7 @@ public class RoadGridManager : MonoBehaviour
         }
     }
 
-    private bool IsCellInsideBuildArea(Vector2Int cellCoord)
+    private bool IsCellInsideBuildArea(Vector2Int cellCoord) // Checks if cell is within build radius
     {
         if (BuildAreaCenter == null) return false;
         Vector2 pos = new Vector2(cellCoord.x, cellCoord.y);

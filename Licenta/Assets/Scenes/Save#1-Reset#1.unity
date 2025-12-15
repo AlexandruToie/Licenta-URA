@@ -174,14 +174,14 @@ Light:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 320983321}
   m_Enabled: 1
-  serializedVersion: 11
+  serializedVersion: 12
   m_Type: 1
   m_Color: {r: 1, g: 0.95686275, b: 0.8392157, a: 1}
   m_Intensity: 1
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
-  m_CookieSize: 10
+  m_CookieSize2D: {x: 10, y: 10}
   m_Shadows:
     m_Type: 2
     m_Resolution: -1
@@ -468,18 +468,21 @@ MonoBehaviour:
   roadCorner: {fileID: 11400000, guid: eff4295dc6c233c4ba51dcf34fa1b39b, type: 2}
   road3Way: {fileID: 11400000, guid: 5a9c834847997e045a4e94d1bd980a5c, type: 2}
   road4Way: {fileID: 11400000, guid: 802597928796aba4a8bd6edd30ec13f5, type: 2}
+  roadDeadEnd: {fileID: 11400000, guid: ba8808b974481664281129b1b9ffcb8f, type: 2}
   StraightRotationOffset: 90
   CornerRotationOffset: 0
   ThreeWayRotationOffset: 90
   FourWayRotationOffset: 0
-  MaxRoadsToBuild: 2
-  NumberOfPOIs: 30
+  DeadEndRotationOffset: 90
+  NumberOfPOIs: 15
   MaxPlacementAttemptsPerPOI: 10
   MinDistanceBetweenPOIs: 6
   SpawnEdgePadding: 15
-  RunwayLength: 3
+  RunwayLength: 7
   POIBufferSize: 2
+  MinIntersectionDistance: 6
   StepDelay: 0.05
+  ShowDebugMarkers: 0
 --- !u!4 &932121062 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5739226587146662662, guid: d58be7082a3abaf4986a737d554761b7, type: 3}
