@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cfacc532982c1744a8baf3e95fa260de, type: 3}
+  m_Name: BSKO_D
+  m_EditorClassIdentifier: Assembly-CSharp::BuildingProfile
+  Prefab: {fileID: 919132149155446097, guid: 0ac280c35072bc24ba9455de90ccd52e, type: 3}
+  Type: 3
+  Size: {x: 1, y: 1}
+  CornerOnly: 0
+  PositionOffset: {x: 0, y: 0, z: 0}
+  RotationOffset: {x: 0, y: 180, z: 0}
+  Scale: {x: 0.75, y: 1, z: 0.75}

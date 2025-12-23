@@ -40,6 +40,8 @@ public class RoadGenerator : MonoBehaviour
     public float StepDelay = 0.01f; 
     public bool ShowDebugMarkers = true;
 
+    public event System.Action OnGenerationFinished;
+
     private HashSet<Vector2Int> roadMapVirtual = new HashSet<Vector2Int>(); // The virtual representation of placed roads
     
     private struct WorldSocket // Information about a POI connection socket in world coordinates
@@ -98,6 +100,8 @@ public class RoadGenerator : MonoBehaviour
         yield return StartCoroutine(SealEmptySockets());
         
         Debug.Log($"[Generator] Gata! Socket-uri conectate/sigilate: {connectedSockets.Count + CountSealedSockets()}/{allSockets.Count}");
+
+        OnGenerationFinished?.Invoke();
     }
 
     private int CountSealedSockets() // Counts how many sockets have been sealed with dead ends
@@ -543,5 +547,9 @@ public class RoadGenerator : MonoBehaviour
         tm.anchor = TextAnchor.MiddleCenter;
         errorObj.transform.rotation = Quaternion.Euler(90, 0, 0);
         debugMarkers.Add(errorObj);
+    }
+    public bool IsCellRoad(Vector2Int pos) // Public method to check if a cell has a road
+    {
+        return roadMapVirtual.Contains(pos);
     }
 }
