@@ -25,9 +25,13 @@ public class BuildingGenerator : MonoBehaviour
     [Tooltip("Necessar padding (in cells) around buildings to keep them apart.")]
     public int CellPadding = 0; 
     public bool ShowDebugGizmos = true;
+    public event System.Action OnBuildingsGenerated;
 
     private List<Vector2Int> constructionQueue = new List<Vector2Int>();
     private HashSet<Vector2Int> processedCells = new HashSet<Vector2Int>();
+
+    [Header("Traffic Data")]
+    public List<Vector2Int> InhabitedHousePositions = new List<Vector2Int>();
     
     // Debug Vizual
     private List<BoundsDebug> debugBounds = new List<BoundsDebug>();
@@ -45,14 +49,15 @@ public class BuildingGenerator : MonoBehaviour
 
     void StartBuildingGeneration()// Triggered when road generation is complete
     {
-        Debug.Log("[buildingGenerator] I start to generate buildings...");
-        debugBounds.Clear();
+        // Debug.Log("[buildingGenerator] I start to generate buildings...");
+        // debugBounds.Clear();
         StartCoroutine(GenerateBuildingsRoutine());
     }
 
     IEnumerator GenerateBuildingsRoutine() // Coroutine for building generation
     {
         ScanForBuildingLots();
+        InhabitedHousePositions.Clear();
         yield return null;
 
         List<Vector2Int> currentQueue = new List<Vector2Int>(constructionQueue);
@@ -67,7 +72,8 @@ public class BuildingGenerator : MonoBehaviour
             
             if (currentQueue.IndexOf(lotPos) % 5 == 0) yield return null;
         }
-        Debug.Log("[BuildingGenerator] Finished generating buildings.");
+        //Debug.Log("[BuildingGenerator] Finished generating buildings.");
+        OnBuildingsGenerated?.Invoke();
     }
 
     private void TryBuildSmart(Vector2Int pos) // Try to place a building intelligently
@@ -190,6 +196,10 @@ public class BuildingGenerator : MonoBehaviour
             instance.transform.position = finalPos + parityOffset + localProfileOffset;
             instance.transform.localScale = profile.Scale;
         }
+        if (profile.Type == BuildingType.House || profile.Type == BuildingType.Apartment)
+        {
+            InhabitedHousePositions.Add(pos);
+        }
     }
 
     private bool IsSpaceStrictlyFree(Vector2Int centerPos, Vector2Int size, int padding) // Check if the area is free with padding
@@ -310,7 +320,6 @@ public class BuildingGenerator : MonoBehaviour
         return float.MinValue;
     }
 
-    // --- DEBUG GIZMOS ---
     private void AddDebugBox(Vector2Int center, Vector2Int size, Color col) // Add a debug box for visualization
     {
         debugBounds.Add(new BoundsDebug { center = new Vector3(center.x, 10f, center.y), size = new Vector3(size.x, 5f, size.y), color = col });

@@ -50,13 +50,15 @@ public class RoadGenerator : MonoBehaviour
         public Vector2Int Direction; 
         public PlacedPOI OwnerPOI;
     }
-    // --- State ---
     private List<WorldSocket> allSockets = new List<WorldSocket>();
     private HashSet<Vector2Int> connectedSockets = new HashSet<Vector2Int>();
     private HashSet<Vector2Int> protectedAccessPoints = new HashSet<Vector2Int>(); 
     private HashSet<Vector2Int> poiRestrictedZone = new HashSet<Vector2Int>();
     private HashSet<Vector2Int> existingIntersections = new HashSet<Vector2Int>();
     private HashSet<Vector2Int> occupiedEdgeTargets = new HashSet<Vector2Int>();
+
+    [Header("Traffic Data")]
+    public List<Vector2Int> GeneratedRoundabouts = new List<Vector2Int>();
 
     private class PlacedPOI { public Vector2Int GridPosition; public PrefabData Data; } // Info about a placed POI
     private List<PlacedPOI> placedPOIs = new List<PlacedPOI>(); // List of all placed POIs
@@ -82,10 +84,12 @@ public class RoadGenerator : MonoBehaviour
         existingIntersections.Clear();
         occupiedEdgeTargets.Clear();
         placedPOIs.Clear();
-        poiPositionsCache.Clear();
+        poiPositionsCache.Clear(); 
+        GeneratedRoundabouts.Clear();
         foreach(var obj in debugMarkers) Destroy(obj);
         debugMarkers.Clear();
         yield return null;
+       
 
         // 2. Setup
         PlaceAllPOIs();
@@ -99,7 +103,7 @@ public class RoadGenerator : MonoBehaviour
         // 4. Finalization
         yield return StartCoroutine(SealEmptySockets());
         
-        Debug.Log($"[Generator] Gata! Socket-uri conectate/sigilate: {connectedSockets.Count + CountSealedSockets()}/{allSockets.Count}");
+        //Debug.Log($"[Generator] Gata! Socket-uri conectate/sigilate: {connectedSockets.Count + CountSealedSockets()}/{allSockets.Count}");
 
         OnGenerationFinished?.Invoke();
     }
@@ -132,7 +136,7 @@ public class RoadGenerator : MonoBehaviour
 
     IEnumerator GenerateAllConnections() // Attempts to connect all POI sockets
     {
-        Debug.Log("[Generator] Incep generarea independenta...");
+        //Debug.Log("[Generator] Incep generarea independenta...");
 
         var sortedPOIs = placedPOIs.OrderByDescending(p => p.Data.ConnectionSockets.Count).ToList(); // Sort POIs by number of sockets
 
@@ -190,7 +194,7 @@ public class RoadGenerator : MonoBehaviour
     }
     IEnumerator SealEmptySockets() // Seals unconnected sockets with dead ends
     {
-        Debug.Log("[Generator] Etapa Finala: Sigilare socket-uri neconectate...");
+        //Debug.Log("[Generator] Etapa Finala: Sigilare socket-uri neconectate...");
 
         foreach (var socket in allSockets) 
         {
@@ -479,6 +483,23 @@ public class RoadGenerator : MonoBehaviour
                     gridManager.PlacePrefab(prefab, pos, Quaternion.identity);
                     gridManager.MarkAreaOccupied(pos, prefab.Size);
                     placedPOIs.Add(new PlacedPOI { GridPosition = pos, Data = prefab });
+                    if (prefab.Size.x == 3 && prefab.Size.y == 3)
+                    {
+                        GeneratedRoundabouts.Add(pos);
+                        //Debug.Log($"[RoadGenerator] Roundabout found at: {pos}");
+                        for (int x = -1; x <= 1; x++)
+                        {
+                            for (int y = -1; y <= 1; y++)
+                            {
+                                if (x == 0 && y == 0) continue;
+                                Vector2Int cellPos = pos + new Vector2Int(x, y);
+                                if (!roadMapVirtual.Contains(cellPos))
+                                {
+                                    roadMapVirtual.Add(cellPos);
+                                }
+                            }
+                        }
+                    }
                     if(ShowDebugMarkers) CreatePOIGlow(pos, Color.magenta); 
                     break;
                 }

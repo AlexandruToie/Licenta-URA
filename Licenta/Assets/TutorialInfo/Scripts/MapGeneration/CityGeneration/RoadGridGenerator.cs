@@ -48,6 +48,19 @@ public class RoadGridManager : MonoBehaviour
 
         Vector3 worldPosition = new Vector3(position.x, _flatZoneHeight + SpawnHeightOffset, position.y); // Convert to world position
         GameObject instance = Instantiate(data.Prefab, worldPosition, rotation); // Instantiate prefab
+
+        MeshCollider mc = instance.GetComponent<MeshCollider>();
+        if (mc == null) 
+        {
+            mc = instance.AddComponent<MeshCollider>();
+        }
+
+        // 3. We make sure the MeshCollider has the correct mesh
+        MeshFilter mf = instance.GetComponent<MeshFilter>();
+        if (mf != null && mc.sharedMesh == null)
+        {
+            mc.sharedMesh = mf.sharedMesh;
+        }
         
         GridCell cell = new GridCell { 
             PlacedPrefabData = data, 
