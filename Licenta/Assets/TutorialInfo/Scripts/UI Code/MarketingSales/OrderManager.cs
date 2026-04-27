@@ -17,14 +17,14 @@ public class OrderManager : MonoBehaviour
     public Transform questsContainer;    
 
     private string[] possibleClients = { "TechCorp", "DuraBuild", "SoftWorks", "MediaGlow", "Nexus" };
-    //Common Requirements
+    
     private string[] commonStyles = { "Corporate", "Aggressive Retail", "Elegant", "Minimalist", "Playful" };
     private string[] commonColors = { "Red", "Blue", "Green", "Yellow", "Black & White" };
-    //Physical Print Requirements
+    
     private string[] printMaterials = { "Glossy Paper", "Matte Cardstock", "Outdoor Banner", "Window Graphic", "Canvas" };
     private string[] printSizes = { "A5 Flyer", "A3 Poster", "Citylight (1x2m)", "Billboard (4x3m)", "Roll-up" };
     private string[] printQualities = { "Draft (72 DPI)", "Standard Print", "High-Res (300 DPI)" };
-    //Digital Ad Requirements
+    
     private string[] digitalMaterials = { "Social Media Post", "Website Ad", "Digital Billboard", "Mobile App Ad" };
     private string[] digitalSizes = { "1080x1080 (Square)", "1080x1920 (Story)", "1920x1080 (FHD)", "300x250 (Web)" };
     private string[] digitalQualities = { "Fast Load (Web)", "Standard Display", "4K UHD Ready" };
@@ -45,8 +45,15 @@ public class OrderManager : MonoBehaviour
 
     private void HandleNewDay(int newDay)
     {
-        ClearPendingOrders();
-        int ordersToGenerate = (newDay <= 7) ? 1 : Random.Range(1, 4);
+        ClearPendingOrders();  
+        int ordersToGenerate = 1;
+        if (newDay > 3)
+        {
+            float currentPop = GameManager.Instance.popularity;
+            if (currentPop >= 100f) ordersToGenerate = 3;
+            else if (currentPop >= 50f) ordersToGenerate = Random.Range(2, 4);
+            else ordersToGenerate = Random.Range(1, 4); 
+        }
         GenerateOrders(ordersToGenerate);
     }
 
@@ -55,55 +62,76 @@ public class OrderManager : MonoBehaviour
         foreach (Transform child in pendingContainer)
         {
             OrderUIElement orderUI = child.GetComponent<OrderUIElement>();
-            if (orderUI != null && orderUI.CurrentState == OrderState.PendingOffer)
-            {
-                Destroy(child.gameObject);
-            }
+            if (orderUI != null && orderUI.CurrentState == OrderState.PendingOffer) Destroy(child.gameObject);
         }
     }
 
     private void GenerateOrders(int amount)
     {
+        float currentRp = GameManager.Instance.reputation;
+        float moneyMultiplier = 1f + (currentRp / 100f * 0.25f);
+
+        int currentDay = 1;
+        if (DayNightCycle.Instance != null)
+        {
+            currentDay = DayNightCycle.Instance.currentDay;
+        }
+        
         for (int i = 0; i < amount; i++)
         {
             string randomClient = possibleClients[Random.Range(0, possibleClients.Length)];
             if (GameManager.Instance.GetRPC(randomClient) <= 0) continue; 
+            
+            int generatedQuantity = 10;
+            if (currentDay <= 5) generatedQuantity = Random.Range(5, 15);
+            else if (currentDay <= 15) generatedQuantity = Random.Range(15, 50);    
+            else if (currentDay <= 30) generatedQuantity = Random.Range(50, 200);   
+            else generatedQuantity = Random.Range(200, 1500);
 
+            float calculatedTimeLimit = Random.Range(2f, 4f) + (generatedQuantity / 500f);
+            
+            float basePrice = 50f + (generatedQuantity * 2.5f); 
+            float finalMoneyReward = basePrice * moneyMultiplier;
+            
             OrderData newOrderData = new OrderData
             {
                 clientName = randomClient,
                 productType = "Custom Project",
-                moneyReward = Random.Range(1000f, 5000f),
-                rpReward = Random.Range(5, 15),
-                popReward = Random.Range(2, 8),
-                timeLimitDays = Random.Range(2f, 5f),
-                chapters = GenerateRandomChapters() 
+                moneyReward = finalMoneyReward,
+                rpReward = Random.Range(5, 12),
+                popReward = Random.Range(2, 6),
+                timeLimitDays = calculatedTimeLimit,
+                targetQuantity = generatedQuantity,
+                chapters = GenerateRandomChapters(generatedQuantity)
             };
-
+            
             GameObject newOrderObj = Instantiate(orderPrefab, pendingContainer);
             newOrderObj.GetComponent<OrderUIElement>().SetupOrder(newOrderData);
         }
     }
 
-    private List<QuestChapter> GenerateRandomChapters()
+    private List<QuestChapter> GenerateRandomChapters(int orderQuantity)
     {
         List<QuestChapter> generatedChapters = new List<QuestChapter>();
         bool isPrintCampaign = Random.value > 0.5f;
+        
         List<RequirementType> allTypes = new List<RequirementType> 
         { 
             RequirementType.Material, 
             RequirementType.Size, 
             RequirementType.Template, 
             RequirementType.Quality,
-            RequirementType.Color 
+            RequirementType.Color,
+            RequirementType.Quantity 
         };
 
         QuestChapter currentChapter = new QuestChapter();
 
         foreach (RequirementType type in allTypes)
         {
-            QuestRequirement req = CreateRequirementForType(type, isPrintCampaign);
+            QuestRequirement req = CreateRequirementForType(type, isPrintCampaign, orderQuantity);
             currentChapter.requirements.Add(req);
+            
             if (currentChapter.requirements.Count == 3)
             {
                 generatedChapters.Add(currentChapter);
@@ -118,7 +146,7 @@ public class OrderManager : MonoBehaviour
         return generatedChapters;
     }
 
-    private QuestRequirement CreateRequirementForType(RequirementType type, bool isPrint)
+    private QuestRequirement CreateRequirementForType(RequirementType type, bool isPrint, int orderQuantity)
     {
         QuestRequirement req = new QuestRequirement { type = type, isCompleted = false };
         bool isAny = Random.value < 0.05f;
@@ -152,14 +180,21 @@ public class OrderManager : MonoBehaviour
                 req.targetValue = isAny ? "Any" : commonColors[Random.Range(0, commonColors.Length)];
                 req.description = $"Dominant Color: {req.targetValue}";
                 break;
+                
+            case RequirementType.Quantity:
+                req.targetValue = orderQuantity.ToString();
+                req.description = $"Required Units: {req.targetValue}";
+                break;
         }
 
         return req;
     }
+    
     public void MoveOrderToAccepted(GameObject orderObj)
     {
         orderObj.transform.SetParent(acceptedContainer, false);
     }
+    
     public void StartActiveQuest(OrderData orderData)
     {
         if (questsContainer != null && !questsContainer.gameObject.activeInHierarchy)
@@ -169,6 +204,7 @@ public class OrderManager : MonoBehaviour
         GameObject newQuestObj = Instantiate(questTrackerPrefab, questsContainer);
         newQuestObj.GetComponent<ActiveQuestUI>().SetupQuest(orderData);
     }
+    
     void OnDestroy()
     {
         if (GameManager.Instance != null)

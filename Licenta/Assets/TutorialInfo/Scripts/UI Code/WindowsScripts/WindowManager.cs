@@ -23,6 +23,9 @@ public class WindowManager : MonoBehaviour
     [Header("References for Close Buttons")]
     public Button closeBtnManagement;
     public Button closeBtnSales;
+    public Button closeBtnProduction;
+    public Button closeBtnUpgrades;
+    public Button closeBtnSettings;
 
     private CursorLockMode previousLockMode;
     private bool previousCursorVisible;
@@ -33,16 +36,21 @@ public class WindowManager : MonoBehaviour
 
         btnManagement.onClick.AddListener(() => ToggleWindow(windowManagement));
         btnSales.onClick.AddListener(() => ToggleWindow(windowSales));
-        btnProduction.onClick.AddListener(() => ToggleWindow(windowProduction));// Decomented for testing
+        btnProduction.onClick.AddListener(() => ToggleWindow(windowProduction));
         btnUpgrades.onClick.AddListener(() => ToggleWindow(windowUpgrades));//Decomented for testing
         btnSettings.onClick.AddListener(() => ToggleWindow(windowSettings));//Decomented for testing
 
-
-        //Update this when you add more windows
         if (closeBtnManagement != null) 
             closeBtnManagement.onClick.AddListener(CloseAll);
         if (closeBtnSales != null) 
             closeBtnSales.onClick.AddListener(CloseAll);
+        if (closeBtnProduction != null) 
+            closeBtnProduction.onClick.AddListener(CloseAll);
+        if (closeBtnUpgrades != null) 
+            closeBtnUpgrades.onClick.AddListener(CloseAll);
+        if (closeBtnSettings != null) 
+            closeBtnSettings.onClick.AddListener(CloseAll);
+
     }
 
     void Update()

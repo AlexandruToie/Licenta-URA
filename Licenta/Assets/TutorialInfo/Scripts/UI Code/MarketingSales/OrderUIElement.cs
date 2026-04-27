@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Text;
 
 public enum OrderState { PendingOffer, Accepted }
-public enum RequirementType { Color, Material, Template, Quality, Code, Size } 
+public enum RequirementType { Color, Material, Template, Quality, Code, Size, Quantity }
 
 [System.Serializable]
 public class QuestRequirement
@@ -31,7 +31,10 @@ public class OrderData
     public int rpReward;
     public int popReward;
     public float timeLimitDays; 
+    public int targetQuantity;
     public List<QuestChapter> chapters = new List<QuestChapter>(); 
+    public bool productionDone = false;
+    public bool drawingDone = false;
 }
 
 public class OrderUIElement : MonoBehaviour
@@ -64,12 +67,6 @@ public class OrderUIElement : MonoBehaviour
     private float expirationTotalHour; 
     private bool isTimerRunning = false;
 
-    private readonly string[] possibleSizes = { "A4 Format", "A5 Flyer", "1080x1080px (Social)", "1920x1080px (Web)", "3x4m Billboard", "85x200cm Roll-up" };
-    private readonly string[] possibleTemplates = { "Corporate", "Minimalist", "Aggressive Sales", "Elegant", "Vintage", "Playful" };
-    private readonly string[] possibleColors = { "Brand Red", "Navy Blue", "Eco Green", "Monochrome", "Vibrant Yellow" };
-    private readonly string[] possibleMaterials = { "Glossy Paper", "Matte Cardstock", "PVC Board", "Outdoor Vinyl", "Canvas", "Digital Display" };
-    private readonly string[] possibleQualities = { "Standard DPI", "High-Res Print", "Premium Masterpiece" };
-
     public void SetupOrder(OrderData orderInfo) 
     {
         currentOrder = orderInfo;
@@ -83,6 +80,7 @@ public class OrderUIElement : MonoBehaviour
 
         SetState(OrderState.PendingOffer);
     }
+    
     private void UpdatePreVisualSpecs()
     {
         if (specificationsText == null) return;
@@ -93,6 +91,7 @@ public class OrderUIElement : MonoBehaviour
             return;
         }
         string fSize = "Any", fTemplate = "Any", fColor = "Any", fMaterial = "Any", fQuality = "Any";
+        
         foreach (var chapter in currentOrder.chapters)
         {
             foreach (var req in chapter.requirements)
@@ -105,19 +104,10 @@ public class OrderUIElement : MonoBehaviour
             }
         }
         StringBuilder brief = new StringBuilder("<b>Campaign Brief:</b> ");  
-        brief.Append($"We need a <b>{fSize}</b> layout, using a <b>{fTemplate}</b> approach. ");
+        brief.Append($"We need <b>{currentOrder.targetQuantity} units</b> of a <b>{fSize}</b> layout, using a <b>{fTemplate}</b> approach. ");
         brief.Append($"Produce it on <b>{fMaterial}</b> at <b>{fQuality}</b>. ");
         brief.Append($"Color profile required: <b>{fColor}</b>.");
         specificationsText.text = brief.ToString();
-    }
-
-    private string FindValueInList(List<string> targetValues, List<string> poolValues)
-    {
-        foreach (string target in targetValues)
-        {
-            if (poolValues.Contains(target)) return target;
-        }
-        return null;
     }
 
     private void SetState(OrderState newState)
@@ -132,7 +122,6 @@ public class OrderUIElement : MonoBehaviour
             case OrderState.PendingOffer:
                 timerGameObject.SetActive(false); 
                 isTimerRunning = false;
-                
                 if (automateContainer != null) automateContainer.SetActive(false);
                 
                 positiveBtnText.text = "Accept";
@@ -154,9 +143,7 @@ public class OrderUIElement : MonoBehaviour
                 if (automateContainer != null) 
                 {
                     bool hasUpgrade = false;
-                    
                     automateContainer.SetActive(hasUpgrade);
-                    
                     if (automateToggle != null)
                     {
                         automateToggle.isOn = false; 
@@ -207,7 +194,6 @@ public class OrderUIElement : MonoBehaviour
     private void OnStartProduction()
     {
         isTimerRunning = false;
-
         bool isAutomated = (automateToggle != null && automateToggle.interactable && automateToggle.isOn);
 
         if (isAutomated)
@@ -216,13 +202,8 @@ public class OrderUIElement : MonoBehaviour
         }
         else
         {
-            Debug.Log($"Sent the order!");
-            if (OrderManager.Instance != null)
-            {
-                OrderManager.Instance.StartActiveQuest(currentOrder);
-            }
+            if (OrderManager.Instance != null) OrderManager.Instance.StartActiveQuest(currentOrder);
         }
-        
         Destroy(gameObject); 
     }
 
@@ -247,6 +228,5 @@ public class OrderUIElement : MonoBehaviour
             GameManager.Instance.AddPOP(-currentOrder.popReward * 2f); 
             GameManager.Instance.AddRPC(currentOrder.clientName, -20f); 
         }
-        Debug.LogWarning($"Penalty applied to {currentOrder.clientName}");
     }
 }

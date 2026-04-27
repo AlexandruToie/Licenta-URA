@@ -15,7 +15,8 @@ public class GameManager : MonoBehaviour
     [Header("Live Data Collection")]
     public double money = 1000.0;   
     [Range(0, 100)] public float reputation = 10f; 
-    [Range(0, 100)] public float popularity = 50f; 
+    [Range(0, 100)] public float popularity = 10f;
+    public int currentMilestone = 1; 
     public double totalSpendingPerMonth = 0; 
     public int totalEmployees = 1; 
 

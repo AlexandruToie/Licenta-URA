@@ -20,32 +20,60 @@ public class ActiveQuestUI : MonoBehaviour
     [Header("Action UI")]
     public Button deliverButton;
 
-    private OrderData myOrder;
+    public OrderData myOrder;
     private int currentChapterIndex = 0;
+
+    [Header("Pop-up Reference")]
+    public GameObject deliveryPopupPrefab;
 
     public void SetupQuest(OrderData order)
     {
+        if (order == null) { Debug.LogError("EROARE: The order is NULL!"); return; }
         myOrder = order;
-        titleText.text = $"{myOrder.clientName} Order";
-        productText.text = $"Product: {myOrder.productType}";
         
-        deliverButton.interactable = false; 
+        requirementSlots = GetComponentsInChildren<RequirementRowUI>(true);
+        
+        if (requirementSlots.Length == 0)
+        {
+            Debug.LogError("GRAVE ERROR: No RequirementRowUI components found in children! Please add them in the Inspector.");
+        }
+
+        if (titleText != null) titleText.text = $"{myOrder.clientName} Order";
+        if (productText != null) productText.text = $"Product: {myOrder.productType}";
+        
+        if (deliverButton != null)
+        {
+            deliverButton.interactable = false; 
+            deliverButton.onClick.RemoveAllListeners();
+            deliverButton.onClick.AddListener(DeliverOrder);
+        }
+
         currentChapterIndex = 0;
 
-        prevButton.onClick.RemoveAllListeners();
-        nextButton.onClick.RemoveAllListeners();
-        deliverButton.onClick.RemoveAllListeners();
+        if (prevButton != null)
+        {
+            prevButton.onClick.RemoveAllListeners();
+            prevButton.onClick.AddListener(PagePrevious);
+        }
+        if (nextButton != null)
+        {
+            nextButton.onClick.RemoveAllListeners();
+            nextButton.onClick.AddListener(PageNext);
+        }
 
-        prevButton.onClick.AddListener(PagePrevious);
-        nextButton.onClick.AddListener(PageNext);
-        deliverButton.onClick.AddListener(DeliverOrder);
+        LoadChapter(currentChapterIndex);
+    }
 
+    public void RefreshVisuals()
+    {
         LoadChapter(currentChapterIndex);
     }
 
     private void LoadChapter(int index)
     {
+        if (myOrder.chapters == null || myOrder.chapters.Count == 0) return;
         QuestChapter chapter = myOrder.chapters[index];
+        
         for (int i = 0; i < requirementSlots.Length; i++)
         {
             if (i < chapter.requirements.Count)
@@ -58,12 +86,13 @@ public class ActiveQuestUI : MonoBehaviour
                 requirementSlots[i].gameObject.SetActive(false);
             }
         }
-        pageText.text = $"{index + 1} / {myOrder.chapters.Count}";
-        prevButton.interactable = (index > 0);
-        nextButton.interactable = (index < myOrder.chapters.Count - 1);
+        
+        if (pageText != null) pageText.text = $"{index + 1} / {myOrder.chapters.Count}";
+        if (prevButton != null) prevButton.interactable = (index > 0);
+        if (nextButton != null) nextButton.interactable = (index < myOrder.chapters.Count - 1);
 
         CheckIfDeliverable();
-        //Force UI to update to reflect the changes
+        
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(GetComponent<RectTransform>());
         if (transform.parent != null)
@@ -92,28 +121,71 @@ public class ActiveQuestUI : MonoBehaviour
 
     public void CheckIfDeliverable()
     {
-        bool allDone = true;
-        foreach (var chapter in myOrder.chapters)
+        if (myOrder == null) return; 
+        bool canDeliver = myOrder.productionDone && myOrder.drawingDone;
+        if (deliverButton != null) 
         {
-            foreach (var req in chapter.requirements)
+            deliverButton.interactable = canDeliver;
+            Image btnImage = deliverButton.GetComponent<Image>();
+            if (btnImage != null)
             {
-                if (!req.isCompleted) allDone = false;
+                if (canDeliver)
+                    btnImage.color = new Color(0.2f, 0.8f, 0.2f);
+                else
+                    btnImage.color = Color.gray; 
             }
         }
-        deliverButton.interactable = allDone;
     }
 
     private void DeliverOrder()
     {
-        Debug.Log("Quest delivered.");
-        
+        int totalRequirements = 0;
+        int metRequirements = 0;
+        foreach (var chapter in myOrder.chapters)
+        {
+            foreach (var req in chapter.requirements)
+            {
+                totalRequirements++;
+                if (req.isCompleted) metRequirements++;
+            }
+        }
+        float completionRate = totalRequirements > 0 ? (float)metRequirements / totalRequirements : 1f;
+        float finalMoney = myOrder.moneyReward * completionRate;
+        float finalRp = myOrder.rpReward * completionRate;
+        float finalPop = myOrder.popReward * completionRate;
+
         if (GameManager.Instance != null)
         {
-            GameManager.Instance.AddMoney(myOrder.moneyReward);
-            GameManager.Instance.AddRP(myOrder.rpReward);
-            GameManager.Instance.AddPOP(myOrder.popReward);
+            if (completionRate < 0.5f)
+            {
+                Debug.LogWarning("You delivered a wrong order, the client is mad!");
+                GameManager.Instance.AddRPC(myOrder.clientName, -15f); 
+            }
+            GameManager.Instance.AddMoney(finalMoney);
+            GameManager.Instance.AddRP((int)finalRp);
+            GameManager.Instance.AddPOP((int)finalPop);
         }
 
+        if (deliveryPopupPrefab != null)
+        {
+            Canvas mainCanvas = FindAnyObjectByType<Canvas>();
+            if (mainCanvas != null)
+            {
+                GameObject popup = Instantiate(deliveryPopupPrefab, mainCanvas.transform);
+                popup.GetComponent<DeliveryPopupUI>().SetupPopup(myOrder.clientName, completionRate, finalMoney, finalRp, finalPop);
+            }
+        }
+        ProductionWorkspace pw = FindAnyObjectByType<ProductionWorkspace>();
+        if (pw != null) pw.ResetWorkspace();
+        if (transform.parent != null)
+        {
+            if (transform.parent.childCount <= 1) 
+            {
+                transform.parent.gameObject.SetActive(false);
+            }
+        }
+
+        Debug.Log($"Project delivered to {myOrder.clientName}. Accuracy: {completionRate*100}%. Money earned: ${finalMoney}");
         Destroy(gameObject);
     }
 }

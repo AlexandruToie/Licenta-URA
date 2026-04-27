@@ -17,7 +17,15 @@ public class RequirementRowUI : MonoBehaviour
 
     public void Setup(QuestRequirement req)
     {
-        descriptionText.text = req.description;
+        if (descriptionText != null)
+        {
+            descriptionText.text = req.description;
+        }
+        else
+        {
+            Debug.LogError($"[{gameObject.name}] EROARE:Description Text is empty!");
+        }
+
         if (statusIconImage != null)
         {
             statusIconImage.color = Color.white;
@@ -29,11 +37,13 @@ public class RequirementRowUI : MonoBehaviour
     public void UpdateStatus(bool isCompleted)
     {
         if (statusIconImage == null) return;
+        
         if (incompleteSprite == null || completeSprite == null)
         {
             Debug.LogWarning($"You dont have both sprites assigned for {gameObject.name}. Please assign them in the Inspector.");
             return;
         }
+        
         if (isCompleted)
         {
             statusIconImage.sprite = completeSprite;
