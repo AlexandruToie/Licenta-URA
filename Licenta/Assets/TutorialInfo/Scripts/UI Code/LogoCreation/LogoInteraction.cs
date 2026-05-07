@@ -16,8 +16,30 @@ public class LogoInteraction : MonoBehaviour, IPointerClickHandler
     [Header("Painter Reference")]
     public PixelArtCanvas painterScript; 
 
-   //The cashe memory for the ReactMeniuu
+    //The cashe memory for the ReactMeniuu
     private RectTransform menuRect;
+
+    private void OnEnable()
+    {
+        RefreshLogo();
+    }
+
+    public void RefreshLogo()
+    {
+        if (logoDisplay != null)
+        {
+            if (painterScript != null && painterScript.GetTexture() != null)
+            {
+                logoDisplay.texture = painterScript.GetTexture();
+                logoDisplay.color = Color.white;
+            }
+            else if (GameManager.Instance != null && GameManager.Instance.companyLogo != null)
+            {
+                logoDisplay.texture = GameManager.Instance.companyLogo;
+                logoDisplay.color = Color.white;
+            }
+        }
+    }
 
     void Start()
     {
@@ -85,6 +107,7 @@ public class LogoInteraction : MonoBehaviour, IPointerClickHandler
                 if (logoDisplay != null)
                 {
                     logoDisplay.texture = createdTexture;
+                    logoDisplay.color = Color.white;
                     logoDisplay.SetAllDirty(); 
                 }
                 if (GameManager.Instance != null) 

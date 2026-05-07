@@ -26,7 +26,7 @@ public class HUDController : MonoBehaviour
 
     public void UpdateMoneyUI(double amount)
     {
-        if (moneyText != null) moneyText.text = "$ " + amount.ToString("N0");
+        if (moneyText != null) moneyText.text = "$ " + amount.ToString("N2");
     }
 
     public void UpdateTimeUI(int hour, int minute, int day)

@@ -229,6 +229,7 @@ public class PixelArtCanvas : MonoBehaviour, IPointerDownHandler, IDragHandler, 
     
     public void ClearCanvas(bool saveUndo = true) 
     {
+        if (texture == null) return;
         if(saveUndo) SaveStateForUndo(); 
         Color[] c = new Color[resolution * resolution]; 
         for(int i=0; i<c.Length; i++) c[i] = Color.white; 

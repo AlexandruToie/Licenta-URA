@@ -35,6 +35,17 @@ public class ProductionWorkspace : MonoBehaviour
     private float productionStartHour = 0f;
     private bool wasEditorActive = false;
 
+    [Header("Resource HUD (Upper Bar)")]
+    public TextMeshProUGUI hudPaperText;
+    public TextMeshProUGUI hudVinylText;
+    public TextMeshProUGUI hudCanvasText;
+    public TextMeshProUGUI hudInkText;
+    public TextMeshProUGUI hudBandwidthText;
+
+    [Header("Window Navigation")]
+    public GameObject warehouseWindow;
+    public Button openWarehouseButton;
+
     void Start()
     {
         PopulateDropdowns();
@@ -53,6 +64,14 @@ public class ProductionWorkspace : MonoBehaviour
             goToDrawingButton.onClick.AddListener(OpenDrawingEditor);
 
         UpdateCalculations();
+
+        if (openWarehouseButton != null)
+        {
+            openWarehouseButton.onClick.AddListener(() => {
+                if (warehouseWindow != null) warehouseWindow.SetActive(true);
+                gameObject.SetActive(false);
+            });
+        }
     }
 
     public void ResetWorkspace()
@@ -74,33 +93,45 @@ public class ProductionWorkspace : MonoBehaviour
             drawingPreview.texture = null;
             drawingPreview.color = new Color(1, 1, 1, 0); 
         }
+        if (pixelCanvas != null)
+        {
+            pixelCanvas.ClearCanvas(false); 
+        }
         currentActiveOrder = null;
         isProducing = false;
+        ToggleInputs(true);
         UpdateCalculations();
     }
 
     private void OnEnable()
     {
+        UpdateResourceHUD();
         ActiveQuestUI activeQuest = FindAnyObjectByType<ActiveQuestUI>();
         if (activeQuest != null)
         {
-            currentActiveOrder = activeQuest.myOrder; 
+            if (currentActiveOrder != activeQuest.myOrder)
+            {
+                ResetWorkspace(); 
+                currentActiveOrder = activeQuest.myOrder; 
+            }
             if (currentActiveOrder != null && currentActiveOrder.productionDone)
             {
                 if(produceButton != null) produceButton.gameObject.SetActive(false);
                 if(goToDrawingButton != null) goToDrawingButton.gameObject.SetActive(true);
                 if(progressBar != null) progressBar.gameObject.SetActive(false);
             }
+            else if (isProducing)
+            {
+                if(produceButton != null) produceButton.gameObject.SetActive(false);
+                if(goToDrawingButton != null) goToDrawingButton.gameObject.SetActive(false);
+                if(progressBar != null) progressBar.gameObject.SetActive(true);
+            }
             else
             {
                 if(produceButton != null) produceButton.gameObject.SetActive(true);
                 if(goToDrawingButton != null) goToDrawingButton.gameObject.SetActive(false);
-                
-                if (quantityInput != null && !isProducing)
-                {
-                    quantityInput.text = ""; 
-                    UpdateCalculations();
-                }
+                if(progressBar != null) progressBar.gameObject.SetActive(false);
+                UpdateCalculations();
             }
         }
         else
@@ -116,7 +147,6 @@ public class ProductionWorkspace : MonoBehaviour
         }
         VerifyRequirements(); 
     }
-
     private void Update()
     {
         if (isProducing && DayNightCycle.Instance != null)
@@ -151,6 +181,24 @@ public class ProductionWorkspace : MonoBehaviour
 
             wasEditorActive = isEditorActive;
         }
+    }
+
+    public void UpdateResourceHUD()
+    {
+        if (ResourceManager.Instance == null) return;
+        string labelColor = "<color=#a0a0a0>"; 
+        string endColor = "</color>";
+
+        if (hudPaperText != null) 
+            hudPaperText.text = $"{labelColor}Paper:{endColor} <b>{ResourceManager.Instance.paperRolls}</b>";
+        if (hudVinylText != null) 
+            hudVinylText.text = $"{labelColor}Vinyl:{endColor} <b>{ResourceManager.Instance.vinylRolls}</b>";           
+        if (hudCanvasText != null) 
+            hudCanvasText.text = $"{labelColor}Canvas:{endColor} <b>{ResourceManager.Instance.canvasRolls}</b>";         
+        if (hudInkText != null) 
+            hudInkText.text = $"{labelColor}Ink:{endColor} <b>{ResourceManager.Instance.inkLiters:F0}L</b>";    
+        if (hudBandwidthText != null) 
+            hudBandwidthText.text = $"{labelColor}Cloud:{endColor} <b>{ResourceManager.Instance.cloudBandwidthGB}GB</b>";
     }
 
     private void OpenDrawingEditor()
@@ -243,14 +291,32 @@ public class ProductionWorkspace : MonoBehaviour
 
     private void StartProduction()
     {
-        if (GameManager.Instance == null || DayNightCycle.Instance == null) return;
+        if (GameManager.Instance == null || DayNightCycle.Instance == null || ResourceManager.Instance == null) return;
+
+        int quantity = 0;
+        int.TryParse(quantityInput.text, out quantity);
+        string selectedMat = materialDropdown.options[materialDropdown.value].text;
+        string errorMsg = "";
+        
+        if (!ResourceManager.Instance.TryConsumeResources(selectedMat, quantity, out errorMsg))
+        {
+            if (ErrorManager.Instance != null)
+            {
+                ErrorManager.Instance.ShowErrorAtCursor(errorMsg);
+            }
+            else
+            {
+                Debug.LogError("ErrorManager was not found. Message: " + errorMsg);
+            }
+            return; 
+        }
+        UpdateResourceHUD();
         GameManager.Instance.AddMoney(-currentCalculatedCost);
         productionStartHour = DayNightCycle.Instance.TotalHours;
         productionEndHour = productionStartHour + currentCalculatedTimeHours;
         isProducing = true;
-
         ToggleInputs(false);
-        if(produceButton != null) produceButton.gameObject.SetActive(false);
+        if (produceButton != null) produceButton.gameObject.SetActive(false);
         if (progressBar != null) progressBar.gameObject.SetActive(true);
     }
 

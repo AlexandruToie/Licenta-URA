@@ -7,6 +7,9 @@ public class OverviewPage : MonoBehaviour
     [Header("Identity UI Elements")]
     public TMP_InputField nameInput;
     public RawImage logoImage;
+    
+    [Header("Painter Reference")]
+    public PixelArtCanvas logoCanvas;
 
     [Header("Stats UI Elements")]
     public TextMeshProUGUI statsMoneyText;
@@ -59,13 +62,22 @@ public class OverviewPage : MonoBehaviour
     {
         if (GameManager.Instance == null) return;
         
-        if (logoImage != null && GameManager.Instance.companyLogo != null)
+        if (logoImage != null)
         {
-            logoImage.texture = GameManager.Instance.companyLogo;
+            if (logoCanvas != null && logoCanvas.GetTexture() != null)
+            {
+                logoImage.texture = logoCanvas.GetTexture();
+                logoImage.color = Color.white;
+            }
+            else if (GameManager.Instance.companyLogo != null)
+            {
+                logoImage.texture = GameManager.Instance.companyLogo;
+                logoImage.color = Color.white;
+            }
         }
 
         if(statsMoneyText != null) 
-            statsMoneyText.text = $"$ {GameManager.Instance.money:N0}";
+            statsMoneyText.text = $"$ {GameManager.Instance.money:N2}";
 
         if(statsReputationText != null) 
             statsReputationText.text = $"{GameManager.Instance.reputation:0}/100";
@@ -79,7 +91,7 @@ public class OverviewPage : MonoBehaviour
                 expenses = EconomyManager.Instance.projectedMonthlyExpenses;
             }
 
-            statsExpensesText.text = $"-${expenses:N0}";
+            statsExpensesText.text = $"-${expenses:N2}";
             statsExpensesText.color = Color.red; 
         }
 
@@ -90,10 +102,15 @@ public class OverviewPage : MonoBehaviour
             if (HRManager.Instance != null) 
                 employeeCount += HRManager.Instance.unassignedEmployees.Count;
 
-
-            foreach (var dept in UIDepartmentNode.allDepartments)
+            if (UIDepartmentNode.allDepartments != null) 
             {
-                employeeCount += dept.myEmployees.Count;
+                foreach (var dept in UIDepartmentNode.allDepartments)
+                {
+                    if (dept != null && dept.myEmployees != null)
+                    {
+                        employeeCount += dept.myEmployees.Count;
+                    }
+                }
             }
 
             statsEmployeesText.text = $"{employeeCount}"; 
