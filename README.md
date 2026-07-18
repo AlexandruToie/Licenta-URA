@@ -16,7 +16,7 @@ The game simulates the complete commercial ecosystem of a real-world advertising
 
 | Procedural City Generation | Management Dashboard & UI |
 | :---: | :---: |
-| ![Procedural Terrain Grid](path_to_your_image_1.png) | ![Management UI Panel](path_to_your_image_2.png) |
+| ![Procedural Terrain Grid](Media/Department_UI.png) | ![Management UI Panel](Media/Road_Generation.png) |
 | *Dynamic procedural relief and roads* | *Decoupled event-driven financial management* |
 
 ---
